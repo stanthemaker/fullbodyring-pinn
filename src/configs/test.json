@@ -1,0 +1,9 @@
+{
+    "batch_size": 1024,
+    "nepochs": 5,
+    "lr": 2e-5,
+    "beta1": 0.5,
+    "ckpt_dir": "/home/stan/data/pinn/ckpt",
+    "data_path": "/home/stan/data/pinn/wave_data.npy",
+    "log_dir": "/home/stan/data/pinn/log"
+}
