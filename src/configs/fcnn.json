@@ -1,10 +1,10 @@
 {
     "batch_size": 512,
-    "nepochs": 2,
-    "lr": 2e-3,
+    "nepochs": 10,
+    "lr": 2e-4,
     "beta1": 0.5,
     "NN_type": "FNN",
     "ckpt_dir": "/home/stan/data/pinn/ckpt",
-    "data_path": "/home/stan/data/pinn/test.npy",
+    "data_path": "/home/stan/data/pinn/downsampled_data.npy",
     "log_dir": "/home/stan/data/pinn/log"
 }

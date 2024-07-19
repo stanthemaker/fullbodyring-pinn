@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import torch
 import os
 import numpy as np
-import torchvision.transforms as T
+from tqdm import tqdm
 
 # Normally, We don't need augmentations in testing and validation.
 # All we need here is to resize the PIL image and transform it into Tensor.
@@ -46,14 +46,19 @@ class wavDataset(Dataset):
         x = (idx % (height * width)) // width
         y = idx % width
 
-        input = torch.tensor([t, x, y]).float()
-        target = torch.tensor(self.wave[t, x, y])
+        input = torch.tensor([t, x, y], dtype=torch.float32)
+        target = torch.tensor(self.wave[t, x, y], dtype=torch.float32)
 
-        return (input, target)
+        return input, target
 
 
-# wav = wavDataset("/home/stan/data/pinn/test.npy")
-# input, target = wav.__getitem__(100)
-# print(type(input))
+# wav = wavDataset("/home/stan/data/pinn/downsampled_data.npy")
+# # input, target = wav[0]
+# for idx in tqdm(range(wav.__len__())):
+#     input, target = wav[idx]
+
+# print(input.shape)
+# # print(target)
+# print(target.shape)
 
 # wav = np.load("/home/stan/data/pinn/wave_data.npy")
