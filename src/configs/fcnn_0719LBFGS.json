@@ -1,0 +1,9 @@
+{
+    "batch_size": 2048,
+    "nepochs": 20,
+    "max_iter": 4,
+    "lr": 1,
+    "ckpt_dir": "/home/stan/data/pinn/ckpt",
+    "data_path": "/home/stan/data/pinn/downsampled_data.npy",
+    "log_dir": "/home/stan/data/pinn/log"
+}

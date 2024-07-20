@@ -120,13 +120,19 @@ class FNN(nn.Module):
         self.l1 = nn.Sequential(nn.Linear(input_dim, 64), nn.Tanh())
 
         # Hidden layer
-        self.l2 = nn.Sequential(nn.Linear(64, 256), nn.Tanh())
 
-        self.l3 = nn.Sequential(nn.Linear(256, 512), nn.Tanh())
+        self.l2 = nn.Sequential(
+            nn.Linear(64, 2048),
+            nn.Tanh(),
+            nn.Linear(2048, 2048),
+            nn.Tanh(),
+            nn.Linear(2048, 2048),
+            nn.Tanh(),
+            nn.Linear(2048, 64),
+            nn.Tanh(),
+        )
 
-        self.l4 = nn.Sequential(nn.Linear(512, 32), nn.Tanh())
-
-        self.l5 = nn.Sequential(nn.Linear(32, output_dim))
+        self.l3 = nn.Sequential(nn.Linear(64, output_dim))
 
         self.apply(self.weights_init)
 
@@ -138,14 +144,42 @@ class FNN(nn.Module):
         y = self.l1(x)
         y = self.l2(y)
         y = self.l3(y)
-        y = self.l4(y)
-        y = self.l5(y)
+        return y
+
+
+class smallFNN(nn.Module):
+    """
+    Input shape: (batch, 3)
+    Output shape: (batch, 1)
+    """
+
+    def __init__(self, input_dim=3, output_dim=1):
+        super(smallFNN, self).__init__()
+
+        # Input layer: (batch, 3)
+        self.l1 = nn.Sequential(nn.Linear(input_dim, 10), nn.Tanh())
+
+        # Hidden layer
+        self.l2 = nn.Sequential(nn.Linear(10, 10), nn.Tanh())
+
+        self.l3 = nn.Sequential(nn.Linear(10, output_dim))
+
+        self.apply(self.weights_init)
+
+    def weights_init(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain("tanh"))
+
+    def forward(self, x):
+        y = self.l1(x)
+        y = self.l2(y)
+        y = self.l3(y)
         return y
 
 
 # device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
-# model = STMsFFN().to(device)
+# model = FNN().to(device)
 # input = torch.tensor(np.random.rand(10, 3), dtype=torch.float32).to(device)
+# summary(model, (3,))
 # model(input)
 # print(model)
-# summary(model, (10, 2))

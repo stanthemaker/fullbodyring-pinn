@@ -11,7 +11,7 @@ import json
 
 # self-defined modules
 from dataset import wavDataset
-from net import FNN, STMsFFN
+from net import FNN, STMsFFN,smallFNN
 
 # This is for the progress bar.
 from tqdm import tqdm
@@ -39,7 +39,6 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     batch_size = config["batch_size"]
     n_epochs = config["nepochs"]
     lr = config["lr"]
-    beta1 = config["beta1"]
     ckpt_dir = config["ckpt_dir"]
     data_path = config["data_path"]
     log_dir = config["log_dir"]
@@ -48,7 +47,7 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    seed = 1314520
+    seed = 7414
     random.seed(seed)
     torch.manual_seed(seed)
     print("Random Seed: ", seed)
@@ -72,10 +71,12 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     )
     if NN_type == "STMsFNN":
         model = STMsFFN().to(device)
+    elif NN_type == "STMsFNN":
+        model = smallFNN().to(device)
     else:
         model = FNN().to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(beta1, 0.999))
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     min_loss = np.inf
 
     if model_path:

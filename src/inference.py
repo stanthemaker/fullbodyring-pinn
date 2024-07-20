@@ -51,8 +51,6 @@ with torch.no_grad():
 
         batch_inputs = inputs[i : i + batch_size].to(device)
         batch_outputs = model(batch_inputs).detach().cpu().numpy()
-        # if i == 100:
-        # print(inputs[i], batch_outputs[0])
         outputs.append(batch_outputs)
 
 # Concatenate all the outputs
