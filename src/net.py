@@ -6,19 +6,6 @@ import random
 import torch.autograd as autograd
 from torch.autograd import Variable
 from torchsummary import summary
-
-# Define the Generator Network
-
-
-# def weights_init(m):
-#     classname = m.__class__.__name__
-#     if classname.find("Conv") != -1:
-#         m.weight.data.normal_(0.0, 0.02)
-#     elif classname.find("BatchNorm") != -1:
-#         m.weight.data.normal_(1.0, 0.02)
-#         m.bias.data.fill_(0)
-
-
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -157,12 +144,12 @@ class smallFNN(nn.Module):
         super(smallFNN, self).__init__()
 
         # Input layer: (batch, 3)
-        self.l1 = nn.Sequential(nn.Linear(input_dim, 10), nn.Tanh())
+        self.l1 = nn.Sequential(nn.Linear(input_dim, 100), nn.Tanh())
 
         # Hidden layer
-        self.l2 = nn.Sequential(nn.Linear(10, 10), nn.Tanh())
+        self.l2 = nn.Sequential(nn.Linear(100, 100), nn.Tanh())
 
-        self.l3 = nn.Sequential(nn.Linear(10, output_dim))
+        self.l3 = nn.Sequential(nn.Linear(100, output_dim))
 
         self.apply(self.weights_init)
 
@@ -176,6 +163,8 @@ class smallFNN(nn.Module):
         y = self.l3(y)
         return y
 
+
+model_classes = {"STMsFNN": STMsFFN, "smallFNN": smallFNN, "FNN": FNN}
 
 # device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
 # model = FNN().to(device)

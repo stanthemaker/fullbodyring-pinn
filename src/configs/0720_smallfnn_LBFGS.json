@@ -2,6 +2,7 @@
     "batch_size": 2048,
     "nepochs": 20,
     "lr": 5e-2,
+    "max_iter": 4,
     "NN_type": "smallFNN",
     "ckpt_dir": "/home/stan/data/pinn/ckpt",
     "data_path": "/home/stan/data/pinn/downsampled_data.npy",

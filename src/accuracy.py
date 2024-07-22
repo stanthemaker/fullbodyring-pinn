@@ -1,35 +1,32 @@
 import numpy as np
+import argparse
 
 
-def relative_rmse(groundtruth, predicted):
-    """
-    Calculate the relative RMSE between groundtruth and predicted grids.
+def accuracy(groundtruth, predicted):
 
-    Parameters:
-    groundtruth (ndarray): Ground truth grid.
-    predicted (ndarray): Predicted grid.
-
-    Returns:
-    float: Relative RMSE.
-    """
-    # Calculate the Mean Squared Error (MSE)
     mse = np.mean((groundtruth - predicted) ** 2)
-
-    # Calculate the Root Mean Squared Error (RMSE)
     rmse = np.sqrt(mse)
 
     # Calculate the root mean squared value of the ground truth grid
-    groundtruth_rms = np.sqrt(np.mean(groundtruth**2))
+    gt_rms = np.sqrt(np.mean(groundtruth**2))
+    print(gt_rms)
+    relative_rmse = rmse / gt_rms
+    print(f"relativae rmse:{relative_rmse}, MSE:{mse}")
+    return
 
-    # Calculate the relative RMSE
-    relative_rmse = rmse / groundtruth_rms
 
-    return relative_rmse
-
-
+parser = argparse.ArgumentParser()
+parser.add_argument("--gt", type=str, default=None, help="ground truth data")
+parser.add_argument(
+    "--pred",
+    type=str,
+    default=None,
+    help="predicted data",
+)
+args = parser.parse_args()
 # Example usage
-groundtruth = np.load("/home/stan/data/pinn/downsampled_data.npy")
-predicted = np.load("/home/stan/data/pinn/output/predicted_data.npz")
+groundtruth = np.load(args.gt)["data"]
+predicted = np.load(args.pred)["data"]
+print(groundtruth.shape, predicted.shape)
 
-rel_rmse = relative_rmse(groundtruth, predicted["data"])
-print(f"Relative RMSE: {rel_rmse}")
+accuracy(groundtruth, predicted)

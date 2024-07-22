@@ -1,4 +1,7 @@
 *.npy
 *.log
 *.pt
+*.png
+*.jpg
+*.npz
 src/__pycache__/*

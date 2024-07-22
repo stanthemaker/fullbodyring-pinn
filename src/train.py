@@ -11,7 +11,7 @@ import json
 
 # self-defined modules
 from dataset import wavDataset
-from net import FNN, STMsFFN,smallFNN
+from net import model_classes
 
 # This is for the progress bar.
 from tqdm import tqdm
@@ -62,6 +62,8 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     print(device, " will be used.\n")
 
     dataset = wavDataset(path=data_path)
+    dataset_rms = dataset.rms
+    print(f"dataset rms:{dataset_rms}")
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -69,12 +71,8 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
         num_workers=12,
         pin_memory=True,
     )
-    if NN_type == "STMsFNN":
-        model = STMsFFN().to(device)
-    elif NN_type == "STMsFNN":
-        model = smallFNN().to(device)
-    else:
-        model = FNN().to(device)
+    model_class = model_classes.get(NN_type)
+    model = model_class().to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     min_loss = np.inf
@@ -85,10 +83,6 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
         optimizer.load_state_dict(state_dict["optimizer"])
         min_loss = state_dict["min_loss"]
         print(f"model loaded at {model_path}")
-
-    gt_data = np.load(data_path)
-    rms_gt = np.sqrt(np.mean(gt_data**2))
-    print(f"ground truth RMS: {rms_gt}")
 
     loss_fn = nn.MSELoss()
 
@@ -115,7 +109,7 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
 
         # # ------------------- an epoch finish ---------------------#
         mseloss = sum(mse_losses) / len(mse_losses)
-        Rrmsloss = sum(rms_losses) / len(rms_losses) / rms_gt
+        Rrmsloss = sum(rms_losses) / len(rms_losses) / dataset_rms
 
         with open(log_file, "a") as f:
             f.write(
@@ -135,6 +129,39 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
                 },
                 ckpt_file,
             )
+    # ----------- inference -------------
+    # t_size = 1
+    # x_size = 500
+    # y_size = 500
+    # indices = np.arange(t_size * x_size * y_size)
+    # t = indices // (x_size * y_size)
+    # r = indices % (x_size * y_size)
+    # x = r // x_size
+    # y = r % x_size
+
+    # coords = np.stack((t, x, y), axis=1)
+    # inputs = torch.from_numpy(coords).float()
+
+    # model.eval()
+    # batch_size = 10000
+    # outputs = []
+
+    # with torch.no_grad():
+    #     # for i in tqdm(range(0, inputs.size()[0], batch_size)):
+    #     for i in range(0, inputs.size()[0], batch_size):
+    #         batch_inputs = inputs[i : i + batch_size].to(device)
+
+    #         batch_outputs = model(batch_inputs).squeeze().detach().cpu().numpy()
+    #         # print(batch_inputs, batch_outputs)
+    #         outputs.append(batch_outputs)
+
+    # outputs = np.concatenate(outputs, axis=0)
+    # predicted = np.zeros((t_size, x_size, y_size))
+    # predicted[coords[:, 0], coords[:, 1], coords[:, 2]] = outputs
+
+    # savefile = os.path.join("test_inference.npz")
+    # np.savez_compressed(savefile, data=predicted)
+    # print("Predicted data saved")
 
 
 if __name__ == "__main__":

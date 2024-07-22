@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 
 # self-defined modules
 from dataset import wavDataset
-from net import FNN, STMsFFN, smallFNN
+from net import model_classes
 
 # This is for the progress bar.
 from tqdm import tqdm
@@ -43,6 +43,7 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     data_path = config["data_path"]
     log_dir = config["log_dir"]
     max_iter = config["max_iter"]
+    NN_type = config["NN_type"]
 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -58,6 +59,9 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     log_file = os.path.join(log_dir, f"{train_name}.log")
     ckpt_file = os.path.join(ckpt_dir, f"{train_name}.pt")
 
+    with open(log_file, "a") as f:
+        f.write(config)
+
     device = torch.device(cuda if (torch.cuda.is_available()) else "cpu")
     print(device, " will be used.\n")
 
@@ -69,7 +73,9 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
         num_workers=12,
         pin_memory=True,
     )
-    model = FNN().to(device)
+
+    model_class = model_classes.get(NN_type)
+    model = model_class().to(device)
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.LBFGS(
