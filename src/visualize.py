@@ -16,15 +16,24 @@ elif args.file.endswith(".npy"):
     data = np.load(args.file)
 
 slice = data[args.num, :, :]
-# w, h = slice.shape
-# slice = torch.from_numpy(slice).float()
-# slice = torch.nn.functional.normalize(slice.flatten(), dim=0).numpy().reshape(w, h)
-# np.savez_compressed("slice.npz", data=slice)
+print(np.std(slice))
+# min_val = np.min(slice)
+# max_val = np.max(slice)
+# slice = 255 * (slice - min_val) / (max_val - min_val)
+# slice = slice.astype(np.uint8)
+
 
 plt.figure(figsize=(10, 8))
-plt.imshow(slice, cmap="seismic")
+plt.imshow(slice, cmap="seismic", vmin=0, vmax=255)
 plt.colorbar()
 plt.title(f"Slice at index {args.num}")
 plt.xlabel("Width")
 plt.ylabel("Height")
 plt.savefig("tmp.png")
+
+# slice = np.expand_dims(slice, axis=0)
+# print(slice.shape)
+# # w, h = slice.shape
+# # slice = torch.from_numpy(slice).float()
+# # slice = torch.nn.functional.normalize(slice.flatten(), dim=0).numpy().reshape(w, h)
+# np.savez_compressed("slice_norm255.npz", data=slice)

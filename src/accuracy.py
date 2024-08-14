@@ -1,5 +1,7 @@
 import numpy as np
 import argparse
+from utils import plot_slices
+from scipy.io import savemat
 
 
 def accuracy(groundtruth, predicted):
@@ -9,9 +11,8 @@ def accuracy(groundtruth, predicted):
 
     # Calculate the root mean squared value of the ground truth grid
     gt_rms = np.sqrt(np.mean(groundtruth**2))
-    print(gt_rms)
     relative_rmse = rmse / gt_rms
-    print(f"relativae rmse:{relative_rmse}, MSE:{mse}")
+    print(f"gt rms: {gt_rms:.4f}, relativae rmse:{relative_rmse:.4f}, MSE:{mse:.7f}")
     return
 
 
@@ -30,3 +31,6 @@ predicted = np.load(args.pred)["data"]
 print(groundtruth.shape, predicted.shape)
 
 accuracy(groundtruth, predicted)
+plot_slices(groundtruth, predicted, "tmp.png")
+data_dict = {"groundtruth": groundtruth, "predicted": predicted}
+savemat("data.mat", data_dict)

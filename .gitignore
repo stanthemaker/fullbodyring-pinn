@@ -4,4 +4,7 @@
 *.png
 *.jpg
 *.npz
+*.txt
+*.dump
 src/__pycache__/*
+pcnn/__pycache__/*

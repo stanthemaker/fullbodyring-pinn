@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import matplotlib.pyplot as plt
 import argparse
 import random
 import os
@@ -12,10 +13,15 @@ import json
 # self-defined modules
 from dataset import wavDataset
 from net import model_classes
+from utils import plot_slices
 
 # This is for the progress bar.
 from tqdm import tqdm
 from datetime import datetime
+
+"""
+    python3 train.py --config ./configs/[config file] --cuda cuda:1
+"""
 
 
 def get_args():
@@ -37,7 +43,7 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
 
     exp_name = config_path.split("/")[-1].split(".")[0]
     batch_size = config["batch_size"]
-    n_epochs = config["nepochs"]
+    n_epochs = config["nepochs"] + 1
     lr = config["lr"]
     ckpt_dir = config["ckpt_dir"]
     data_path = config["data_path"]
@@ -47,15 +53,17 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    seed = 7414
+    seed = 2318798
     random.seed(seed)
     torch.manual_seed(seed)
     print("Random Seed: ", seed)
 
-    # Parameters to define the model.
     time = datetime.now().strftime("%m%d-%H%M_")
     train_name = time + exp_name
-    log_file = os.path.join(log_dir, f"{train_name}.log")
+    log_folder = os.path.join(log_dir, train_name)
+    if not os.path.exists(log_folder):
+        os.mkdir(log_folder)
+    log_file = os.path.join(log_folder, f"{train_name}.log")
     ckpt_file = os.path.join(ckpt_dir, f"{train_name}.pt")
 
     device = torch.device(cuda if (torch.cuda.is_available()) else "cpu")
@@ -67,101 +75,71 @@ def main(config_path: str, model_path: str, cuda: str, to_save: int):
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=True,
-        num_workers=12,
+        shuffle=False,
+        num_workers=8,
         pin_memory=True,
     )
     model_class = model_classes.get(NN_type)
     model = model_class().to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    min_loss = np.inf
 
     if model_path:
         state_dict = torch.load(model_path)
         model.load_state_dict(state_dict["model"])
         optimizer.load_state_dict(state_dict["optimizer"])
-        min_loss = state_dict["min_loss"]
         print(f"model loaded at {model_path}")
 
     loss_fn = nn.MSELoss()
-
     print("Starting Training Loop...")
     print("-" * 40)
     for epoch in range(n_epochs):
         progress_bar = tqdm(dataloader)
+        rec_indices = np.random.choice(progress_bar.total - 20, 4, replace=False) + 20
         progress_bar.set_description(f"Epoch {epoch+1}")
         mse_losses = []
-        rms_losses = []
+        rec_preds, rec_gts = [], []
+
         for i, (input, target) in enumerate(progress_bar):
             input = input.to(device)
-            target = torch.unsqueeze(target, dim=1).to(device)
+            target = target.to(device)
+            pred = model(input).squeeze()
 
-            pred = model(input)
             loss = loss_fn(pred, target)
+            # print(f"input shape: {input.shape}, target shape:{target.shape}")
+            # print(f"output shape: {pred.shape}")
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
             mse_losses.append(loss.item())
-            rms_losses.append(np.sqrt(loss.item()))
+
+            if i in rec_indices and epoch % 100 == 0:
+                rec_preds.append(pred.detach().cpu().numpy()[0])
+                rec_gts.append(target.detach().cpu().numpy()[0])
 
         # # ------------------- an epoch finish ---------------------#
         mseloss = sum(mse_losses) / len(mse_losses)
-        Rrmsloss = sum(rms_losses) / len(rms_losses) / dataset_rms
-
+        Rrmsloss = np.sqrt(mseloss) / dataset_rms
         with open(log_file, "a") as f:
             f.write(
-                f"[ {epoch + 1:03d}/{n_epochs:03d} ] mseloss = {mseloss:.4f}, rmseloss = {Rrmsloss:.4f}\n"
+                f"[ {epoch + 1:03d}/{n_epochs:03d} ] mse = {mseloss:.7f}, relative rmse = {Rrmsloss:.4f}\n"
             )
             print(
-                f"[ {epoch + 1:03d}/{n_epochs:03d} ] mseloss = {mseloss:.4f}, rmseloss = {Rrmsloss:.4f}\n"
+                f"[ {epoch + 1:03d}/{n_epochs:03d} ] mse = {mseloss:.7f}, relative rmse = {Rrmsloss:.4f}\n"
             )
-
-        if mseloss < min_loss:
-            min_loss = mseloss
+        if epoch % 100 == 0:
+            rec_gts = np.stack(rec_gts, axis = 0)
+            rec_preds = np.stack(rec_preds, axis = 0)
+            plot_slices(rec_gts, rec_preds, os.path.join(log_folder, f"{epoch}.png"))
             torch.save(
                 {
                     "model": model.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "min_loss": min_loss,
                 },
                 ckpt_file,
             )
-    # ----------- inference -------------
-    # t_size = 1
-    # x_size = 500
-    # y_size = 500
-    # indices = np.arange(t_size * x_size * y_size)
-    # t = indices // (x_size * y_size)
-    # r = indices % (x_size * y_size)
-    # x = r // x_size
-    # y = r % x_size
-
-    # coords = np.stack((t, x, y), axis=1)
-    # inputs = torch.from_numpy(coords).float()
-
-    # model.eval()
-    # batch_size = 10000
-    # outputs = []
-
-    # with torch.no_grad():
-    #     # for i in tqdm(range(0, inputs.size()[0], batch_size)):
-    #     for i in range(0, inputs.size()[0], batch_size):
-    #         batch_inputs = inputs[i : i + batch_size].to(device)
-
-    #         batch_outputs = model(batch_inputs).squeeze().detach().cpu().numpy()
-    #         # print(batch_inputs, batch_outputs)
-    #         outputs.append(batch_outputs)
-
-    # outputs = np.concatenate(outputs, axis=0)
-    # predicted = np.zeros((t_size, x_size, y_size))
-    # predicted[coords[:, 0], coords[:, 1], coords[:, 2]] = outputs
-
-    # savefile = os.path.join("test_inference.npz")
-    # np.savez_compressed(savefile, data=predicted)
-    # print("Predicted data saved")
 
 
 if __name__ == "__main__":

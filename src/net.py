@@ -8,6 +8,7 @@ from torch.autograd import Variable
 from torchsummary import summary
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import OrderedDict
 
 
 class STMsFFN(nn.Module):
@@ -94,81 +95,80 @@ class STMsFFN(nn.Module):
         return x
 
 
-class FNN(nn.Module):
-    """
-    Input shape: (batch, 3)
-    Output shape: (batch, 1)
-    """
-
-    def __init__(self, input_dim=3, output_dim=1):
-        super(FNN, self).__init__()
-
-        # Input layer: (batch, 3)
-        self.l1 = nn.Sequential(nn.Linear(input_dim, 64), nn.Tanh())
-
-        # Hidden layer
-
-        self.l2 = nn.Sequential(
-            nn.Linear(64, 2048),
-            nn.Tanh(),
-            nn.Linear(2048, 2048),
-            nn.Tanh(),
-            nn.Linear(2048, 2048),
-            nn.Tanh(),
-            nn.Linear(2048, 64),
-            nn.Tanh(),
+class DNN_ReLU(nn.Module):
+    def __init__(self, input_dim=3, hiddenlayer_dim=400, output_dim=1):
+        super(DNN_ReLU, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(input_dim, hiddenlayer_dim),
+            nn.ReLU(),
+            nn.Linear(hiddenlayer_dim, hiddenlayer_dim),
+            nn.ReLU(),
+            nn.Linear(hiddenlayer_dim, hiddenlayer_dim),
+            nn.ReLU(),
+            nn.Linear(hiddenlayer_dim, output_dim),
+            nn.Sigmoid(),
         )
 
-        self.l3 = nn.Sequential(nn.Linear(64, output_dim))
+    def forward(self, x):
+        return self.layers(x)
 
-        self.apply(self.weights_init)
 
-    def weights_init(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain("tanh"))
+class DNN_Tanh(nn.Module):
+    def __init__(self, input_dim=3, hiddenlayer_dim=256, output_dim=1):
+        super(DNN_Tanh, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(input_dim, hiddenlayer_dim),
+            nn.Tanh(),
+            nn.Linear(hiddenlayer_dim, hiddenlayer_dim),
+            nn.Tanh(),
+            nn.Linear(hiddenlayer_dim, hiddenlayer_dim),
+            nn.Tanh(),
+            nn.Linear(hiddenlayer_dim, hiddenlayer_dim),
+            nn.Tanh(),
+            nn.Linear(hiddenlayer_dim, output_dim),
+        )
 
     def forward(self, x):
-        y = self.l1(x)
-        y = self.l2(y)
-        y = self.l3(y)
-        return y
+        return self.layers(x)
 
 
-class smallFNN(nn.Module):
-    """
-    Input shape: (batch, 3)
-    Output shape: (batch, 1)
-    """
+class DNN_paper(nn.Module):
+    def __init__(self, layers=[3] + [30] * 5 + [1]):
+        super(DNN_paper, self).__init__()
 
-    def __init__(self, input_dim=3, output_dim=1):
-        super(smallFNN, self).__init__()
+        self.depth = len(layers) - 1
 
-        # Input layer: (batch, 3)
-        self.l1 = nn.Sequential(nn.Linear(input_dim, 100), nn.Tanh())
+        self.activation = torch.nn.Tanh
 
-        # Hidden layer
-        self.l2 = nn.Sequential(nn.Linear(100, 100), nn.Tanh())
+        layer_list = list()
+        for i in range(self.depth - 1):
+            layer_list.append(
+                ("layer_%d" % i, torch.nn.Linear(layers[i], layers[i + 1]))
+            )
+            layer_list.append(("activation_%d" % i, self.activation()))
 
-        self.l3 = nn.Sequential(nn.Linear(100, output_dim))
+        layer_list.append(
+            ("layer_%d" % (self.depth - 1), torch.nn.Linear(layers[-2], layers[-1]))
+        )
+        layerDict = OrderedDict(layer_list)
 
-        self.apply(self.weights_init)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight.data, gain=nn.init.calculate_gain("tanh"))
+        # deploy layers
+        self.layers = torch.nn.Sequential(layerDict)
 
     def forward(self, x):
-        y = self.l1(x)
-        y = self.l2(y)
-        y = self.l3(y)
-        return y
+        out = self.layers(x)
+        return out
 
 
-model_classes = {"STMsFNN": STMsFFN, "smallFNN": smallFNN, "FNN": FNN}
+model_classes = {
+    "STMsFNN": STMsFFN,
+    "DNN_Tanh": DNN_Tanh,
+    "DNN_ReLU": DNN_ReLU,
+    "DNN_paper": DNN_paper,
+}
 
 # device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
-# model = FNN().to(device)
 # input = torch.tensor(np.random.rand(10, 3), dtype=torch.float32).to(device)
-# summary(model, (3,))
+# model = FNN().to(device)
 # model(input)
 # print(model)

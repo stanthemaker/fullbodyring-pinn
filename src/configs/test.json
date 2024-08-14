@@ -1,9 +1,0 @@
-{
-    "batch_size": 1000,
-    "nepochs": 5,
-    "lr": 2e-3,
-    "NN_type": "FNN",
-    "ckpt_dir": "/home/stan/data/pinn/ckpt",
-    "data_path": "/home/stan/data/pinn/slice.npy",
-    "log_dir": "/home/stan/data/pinn/log"
-}
