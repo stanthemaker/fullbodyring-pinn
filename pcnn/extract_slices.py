@@ -32,17 +32,6 @@ p_scl = max(abs(np.min(data_wave[slices[0]])), abs(np.max(slices[0])))
 for i, slice in enumerate(slices):
 
     p = data_wave[slice] / p_scl
-    # p = (
-    #     zoom(
-    #         p,
-    #         (
-    #             p_origin.shape[0] / p.shape[0],
-    #             p_origin.shape[0] / p.shape[0],
-    #         ),
-    #         order=1,
-    #     )
-    #     / p_scl
-    # )
     p_new[i] = p
 
 data_dict = {
