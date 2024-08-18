@@ -8,6 +8,7 @@ from torch.optim.lr_scheduler import StepLR
 from functorch import jacrev, vmap, make_functional, grad, vjp
 import torch.autograd.functional as F
 import timeit
+from tqdm import tqdm
 from utils import plot_eval, bilinear_interpol
 
 
@@ -16,6 +17,22 @@ def initialize_weights(module):
     if isinstance(module, nn.Linear):
         nn.init.xavier_uniform_(module.weight)
         module.bias.data.zero_()
+
+
+def save_checkpoint(model, save_dir):
+    """save model and optimizer"""
+    torch.save({"model_state_dict": model.state_dict()}, save_dir)
+    print("Pretrained model saved!")
+
+
+def load_checkpoint(model, save_dir):
+    """load model and optimizer"""
+    checkpoint = torch.load(save_dir)
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    print("Pretrained model loaded!")
+
+    return model
 
 
 # the deep neural network
@@ -52,8 +69,6 @@ class DNN(nn.Module):
 # the physics-guided neural network
 class PhysicsInformedNN:
     def __init__(self, **kwargs):
-        # def __init__(self, model_Dir="", log_file="", map_file="", lbfgs_iter=8000):
-
         # Define layers
         self.log_file = kwargs.pop("log_file", "")
         self.map_file = kwargs.pop("map_file", "")  # sos map
@@ -62,8 +77,9 @@ class PhysicsInformedNN:
         self.ckpt_dir = kwargs.pop("ckpt_dir", "")
         self.inf_dir = kwargs.pop("inf_dir", "")
         self.device = kwargs.pop("device", "cuda:0")
+        self.mode = kwargs.pop("mode", "train")
 
-        lbfgs_iter = kwargs.pop("lbfgs_iter", 8000)
+        lbfgs_iter = kwargs.pop("lbfgs_iter", 6000)
         model_path = kwargs.pop("model_path", "")
         layers = kwargs.pop("layers", [3] + [40] * 5 + [1])
 
@@ -75,15 +91,7 @@ class PhysicsInformedNN:
         self.zmin = kwargs.pop("zmin", None)
         self.xini_min = kwargs.pop("xini_min", None)
         self.xini_max = kwargs.pop("xini_max", None)
-        X_pde = kwargs.pop("X_pde", None)
-        X_ini1 = kwargs.pop("X_ini1", None)
-        X_ini2 = kwargs.pop("X_ini2", None)
-        p_ini1 = kwargs.pop("p_ini1", None)
-        p_ini2 = kwargs.pop("p_ini2", None)
-        X_ini1_s2 = kwargs.pop("X_ini1_s2", None)
-        X_ini2_s2 = kwargs.pop("X_ini2_s2", None)
-        p_ini1_s2 = kwargs.pop("p_ini1_s2", None)
-        p_ini2_s2 = kwargs.pop("p_ini2_s2", None)
+
         self.X_evals = kwargs.pop("X_evals", None)
         self.p_evals = kwargs.pop("p_evals", None)
         self.x_eval = kwargs.pop("x_eval", None)
@@ -96,75 +104,89 @@ class PhysicsInformedNN:
         # deep neural networks
         self.dnn = DNN(layers).to(device)
 
+        print("model_path:", model_path)
         if model_path == "":
             self.dnn.apply(initialize_weights)
         else:
             self.dnn = load_checkpoint(self.dnn, model_path)
 
         # input data
-        self.x_pde = torch.tensor(
-            X_pde[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.z_pde = torch.tensor(
-            X_pde[:, 1:2], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.t_pde = torch.tensor(
-            X_pde[:, 2:3], dtype=torch.float64, requires_grad=True
-        ).to(device)
+        X_pde = kwargs.pop("X_pde", None)
+        if X_pde is not None and X_pde.size > 0 and X_pde.any():
+            self.x_pde = torch.tensor(
+                X_pde[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_pde = torch.tensor(
+                X_pde[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_pde = torch.tensor(
+                X_pde[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
 
-        self.x_ini1 = torch.tensor(
-            X_ini1[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.z_ini1 = torch.tensor(
-            X_ini1[:, 1:2], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.t_ini1 = torch.tensor(
-            X_ini1[:, 2:3], dtype=torch.float64, requires_grad=True
-        ).to(device)
+        ini_cond = kwargs.pop("ini_cond", None)
+        if not ini_cond == None:
+            X_ini1 = ini_cond.get("X_ini1")
+            X_ini2 = ini_cond.get("X_ini2")
+            p_ini1 = ini_cond.get("p_ini1")
+            p_ini2 = ini_cond.get("p_ini2")
+            X_ini1_s2 = ini_cond.get("X_ini1_s2")
+            X_ini2_s2 = ini_cond.get("X_ini2_s2")
+            p_ini1_s2 = ini_cond.get("p_ini1_s2")
+            p_ini2_s2 = ini_cond.get("p_ini2_s2")
 
-        self.x_ini2 = torch.tensor(
-            X_ini2[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.z_ini2 = torch.tensor(
-            X_ini2[:, 1:2], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.t_ini2 = torch.tensor(
-            X_ini2[:, 2:3], dtype=torch.float64, requires_grad=True
-        ).to(device)
+            self.x_ini1 = torch.tensor(
+                X_ini1[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_ini1 = torch.tensor(
+                X_ini1[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_ini1 = torch.tensor(
+                X_ini1[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
 
-        self.p_ini1 = torch.tensor(
-            p_ini1[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.p_ini2 = torch.tensor(
-            p_ini2[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
+            self.x_ini2 = torch.tensor(
+                X_ini2[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_ini2 = torch.tensor(
+                X_ini2[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_ini2 = torch.tensor(
+                X_ini2[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
 
-        self.x_ini1_s2 = torch.tensor(
-            X_ini1_s2[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.z_ini1_s2 = torch.tensor(
-            X_ini1_s2[:, 1:2], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.t_ini1_s2 = torch.tensor(
-            X_ini1_s2[:, 2:3], dtype=torch.float64, requires_grad=True
-        ).to(device)
+            self.p_ini1 = torch.tensor(
+                p_ini1[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.p_ini2 = torch.tensor(
+                p_ini2[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
 
-        self.x_ini2_s2 = torch.tensor(
-            X_ini2_s2[:, 0:1], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.z_ini2_s2 = torch.tensor(
-            X_ini2_s2[:, 1:2], dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.t_ini2_s2 = torch.tensor(
-            X_ini2_s2[:, 2:3], dtype=torch.float64, requires_grad=True
-        ).to(device)
+            self.x_ini1_s2 = torch.tensor(
+                X_ini1_s2[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_ini1_s2 = torch.tensor(
+                X_ini1_s2[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_ini1_s2 = torch.tensor(
+                X_ini1_s2[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
 
-        self.p_ini1_s2 = torch.tensor(
-            p_ini1_s2, dtype=torch.float64, requires_grad=True
-        ).to(device)
-        self.p_ini2_s2 = torch.tensor(
-            p_ini2_s2, dtype=torch.float64, requires_grad=True
-        ).to(device)
+            self.x_ini2_s2 = torch.tensor(
+                X_ini2_s2[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_ini2_s2 = torch.tensor(
+                X_ini2_s2[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_ini2_s2 = torch.tensor(
+                X_ini2_s2[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
+
+            self.p_ini1_s2 = torch.tensor(
+                p_ini1_s2, dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.p_ini2_s2 = torch.tensor(
+                p_ini2_s2, dtype=torch.float64, requires_grad=True
+            ).to(device)
 
         # optimizers
         self.optimizer = torch.optim.LBFGS(
@@ -532,17 +554,17 @@ class PhysicsInformedNN:
                         f"lambda_ini1: {self.lambda_ini1}, lambda_pde: {self.lambda_pde}\n"
                     )
 
-            if epoch % 5000 == 0:
+            if epoch % 2000 == 0:
                 if IfIni:
                     fig_path = (
                         f"{self.fig_dir}/loop_{self.loop_iter}_ini_adam_{epoch}.png"
                     )
-                    self.predict_eval(epoch, fig_path)
+                    self.predict_eval(fig_path)
                 else:
                     fig_path = f"{self.fig_dir}/loop_{self.loop_iter}_adam_{epoch}.png"
-                    self.predict_eval(epoch, fig_path)
+                    self.predict_eval(fig_path)
 
-            if epoch % 20000 == 0:
+            if epoch % 10000 == 0:
                 if IfIni:
                     save_model_path = f"{self.ckpt_dir}/loop_{self.loop_iter}_ini_adam_checkpoints_{epoch}.dump"
                     save_checkpoint(self.dnn, save_model_path)
@@ -568,14 +590,14 @@ class PhysicsInformedNN:
         if self.LBFGS_iter % 2000 == 0:
             if self.IfIni:
                 fig_path = f"{self.fig_dir}/loop_{self.loop_iter}_ini_LBFGS_{self.LBFGS_iter}.png"
-                self.predict_eval(self.LBFGS_iter, fig_path)
+                self.predict_eval(fig_path)
                 save_model_path = f"{self.ckpt_dir}/loop_{self.loop_iter}_ini_LBFGS_checkpoints_{self.LBFGS_iter}.dump"
                 save_checkpoint(self.dnn, save_model_path)
             else:
                 fig_path = (
                     f"{self.fig_dir}/loop_{self.loop_iter}_LBFGS_{self.LBFGS_iter}.png"
                 )
-                self.predict_eval(self.LBFGS_iter, fig_path)
+                self.predict_eval(fig_path)
                 save_model_path = f"{self.ckpt_dir}/loop_{self.loop_iter}_LBFGS_checkpoints_{self.LBFGS_iter}.dump"
                 save_checkpoint(self.dnn, save_model_path)
 
@@ -607,7 +629,7 @@ class PhysicsInformedNN:
 
         return p
 
-    def predict_eval(self, epoch, figname):
+    def predict_eval(self, figname):
 
         P_PINN_pred = []
         P_diff_diff = []
@@ -637,22 +659,55 @@ class PhysicsInformedNN:
         }
         plot_eval(**kwargs)
 
-        if not self.inf_dir == "":
-            data = np.concatenate(P_PINN_pred, axis=0)
-            np.savez_compressed(self.inf_dir, data=data)
+    def inference_field(self, X, savepath):
+        output = []
+        print("start inferencing ... ")
+        for i in tqdm(range(len(X))):
+            p_eval = self.predict(X[i])
+            output.append(p_eval.detach().cpu().numpy())
+        output = np.concatenate(output, axis=0)
+        np.savez_compressed(savepath, data=output)
 
 
-def save_checkpoint(model, save_dir):
-    """save model and optimizer"""
-    torch.save({"model_state_dict": model.state_dict()}, save_dir)
-    print("Pretrained model saved!")
+class Ultra_PINN(PhysicsInformedNN):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
+        self.f = kwargs.pop("f", None)
 
-def load_checkpoint(model, save_dir):
-    """load model and optimizer"""
-    checkpoint = torch.load(save_dir)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    def loss_func(self):
+        device = self.device
+        mse_loss = nn.MSELoss()
 
-    print("Pretrained model loaded!")
+        res_p_pred = self.calc_res_pde(self.x_pde, self.z_pde, self.t_pde)
+        loss = mse_loss(
+            res_p_pred, self.f(self.x_pde, self.z_pde, self.t_pde).to(device)
+        )
 
-    return model
+        return loss
+
+    def train_adam(self, n_iters):
+
+        self.dnn.train()
+        for epoch in range(n_iters):
+
+            self.opt_adam.zero_grad()
+            loss = self.loss_func()
+            loss.backward()
+            self.opt_adam.step()
+            self.scheduler.step()
+
+            self.loss_adam.append(loss.detach().cpu().numpy())
+
+            self.adam_iter += 1
+            if self.adam_iter % 500 == 0:
+                with open(self.log_file, "a") as f:
+                    f.write(f"Adam Iter {self.adam_iter}, Loss: {loss.item()}\n")
+
+            if epoch % 2000 == 0:
+                fig_path = f"{self.fig_dir}/adam_{epoch}.png"
+                self.predict_eval(fig_path)
+
+            if epoch % 10000 == 0:
+                save_model_path = f"{self.ckpt_dir}/adam_checkpoints_{epoch}.dump"
+                save_checkpoint(self.dnn, save_model_path)

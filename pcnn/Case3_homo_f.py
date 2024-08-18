@@ -12,9 +12,10 @@ import torch.autograd.functional as F
 import timeit
 import argparse
 import os
+from scipy.io import savemat
 
 from utils import plot_setup, bilinear_interpol, plot_eval
-from net import PhysicsInformedNN
+from net import Ultra_PINN
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -28,6 +29,7 @@ def get_args():
     parser.add_argument("--name", "-j", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
     parser.add_argument("--data", "-d", type=str, default="", help="data path")
+    parser.add_argument("--model", "-m", type=str, default="", help="model path")
     return parser.parse_args()
 
 
@@ -38,6 +40,8 @@ if __name__ == "__main__":
     ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
     wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
+    model_path = args.model
+    wave_data = np.load(args.data)["data"]
 
     if not os.path.exists(dump_folder):
         os.mkdir(dump_folder)
@@ -69,9 +73,9 @@ if __name__ == "__main__":
     zmin = zmin_spec + dz * n_abs
     zmax = zmax_spec - dz * n_abs
 
-    n_slices = 1000
+    n_slices = wave_data.shape[0]
     time_span = 2.5
-    indices = [200, 300, 400, 700, 900]
+    indices = [285, 500, 700, 950]
     time_pts = []
     for i in range(len(indices)):
         time_pts.append((indices[i] / n_slices) * time_span)
@@ -85,65 +89,10 @@ if __name__ == "__main__":
     z_0 = z_0_mesh.reshape(-1, 1)
     xz_0 = np.concatenate((x_0, z_0), axis=1)
 
-    """ First IC and Second IC """
-    n_ini = 80
-    xini_min = xmin
-    xini_max = xmax
-    x_ini = np.linspace(xini_min, xini_max, n_ini)
-    z_ini = np.linspace(xini_min, xini_max, n_ini)
-    x_ini_mesh, z_ini_mesh = np.meshgrid(x_ini, z_ini)
-    x_ini = x_ini_mesh.reshape(-1, 1)
-    z_ini = z_ini_mesh.reshape(-1, 1)
-    t_ini1 = 0.0 * np.ones((n_ini**2, 1), dtype=np.float64)
-    t_ini2 = (time_pts[1] - time_pts[0]) * np.ones((n_ini**2, 1), dtype=np.float64)
-    # for enforcing the disp I.C
-    X_ini1 = np.concatenate((x_ini, z_ini, t_ini1), axis=1)  # [1600, 3]
-    # for enforcing the sec I.C, another snapshot of specfem
-    X_ini2 = np.concatenate((x_ini, z_ini, t_ini2), axis=1)  # [1600, 3]
-    xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [1600, 2]
+    p_scl = np.max(abs(wave_data[indices[0]]))
+    p_scl = max(abs(np.min(wave_data[indices[0]])), abs(np.max(wave_data[indices[0]])))
+    u_color = 1.0
 
-    # uploading the wavefields from specfem
-    wave_data = np.load(args.data)["data"]
-    p_ini1 = interpolate.griddata(
-        xz_0, wave_data[indices[0]].reshape(-1), xz_ini, fill_value=0.0
-    )
-    p_ini2 = interpolate.griddata(
-        xz_0, wave_data[indices[1]].reshape(-1), xz_ini, fill_value=0.0
-    )
-    p_scl = max(abs(np.min(p_ini1)), abs(np.max(p_ini1)))
-    print(p_scl)
-    p_ini1 = p_ini1.reshape(-1, 1) / p_scl
-    p_ini2 = p_ini2.reshape(-1, 1) / p_scl
-    u1_min = np.min(p_ini1)
-    u1_max = np.max(p_ini1)
-    u_color = max(abs(u1_min), abs(u1_max))
-    print(f"u_scl:{p_scl}")
-    print(
-        f"shpae of U_ini1: {p_ini1.shape} === min: [{np.min(p_ini1)}] === max: [{np.max(p_ini1)}]"
-    )
-    print(
-        f"shpae of U_ini2: {p_ini2.shape} === min: [{np.min(p_ini2)}] === max: [{np.max(p_ini2)}]"
-    )
-    """ First IC and Second IC """
-    x_ini_s2 = np.linspace(xmin, xmax, n_ini)
-    z_ini_s2 = np.linspace(zmin, zmax, n_ini)
-    x_ini_s2_mesh, z_ini_s2_mesh = np.meshgrid(x_ini_s2, z_ini_s2)
-    x_ini_s2 = x_ini_s2_mesh.reshape(-1, 1)
-    z_ini_s2 = z_ini_s2_mesh.reshape(-1, 1)
-    t_ini1_s2 = 0.0 * np.ones((n_ini**2, 1), dtype=np.float64)
-    t_ini2_s2 = (time_pts[1] - time_pts[0]) * np.ones((n_ini**2, 1), dtype=np.float64)
-    X_ini1_s2 = np.concatenate((x_ini_s2, z_ini_s2, t_ini1_s2), axis=1)  # [1600, 3]
-    X_ini2_s2 = np.concatenate((x_ini_s2, z_ini_s2, t_ini2_s2), axis=1)  # [1600, 3]
-    xz_ini_s2 = np.concatenate((x_ini_s2, z_ini_s2), axis=1)  # [1600, 2]
-    p_ini1_s2 = interpolate.griddata(
-        xz_0, wave_data[indices[0]].reshape(-1), xz_ini_s2, fill_value=0.0
-    )
-    p_ini2_s2 = interpolate.griddata(
-        xz_0, wave_data[indices[1]].reshape(-1), xz_ini_s2, fill_value=0.0
-    )
-    p_ini1_s2 = p_ini1_s2.reshape(-1, 1) / p_scl
-    p_ini2_s2 = p_ini2_s2.reshape(-1, 1) / p_scl
-    # wavefields for eval
     n_eval = 100
     x_eval = np.linspace(xmin, xmax, n_eval)
     z_eval = np.linspace(zmin, zmax, n_eval)
@@ -169,12 +118,12 @@ if __name__ == "__main__":
 
     ################### plotting
     kwargs = {
-        "ini": {
-            "x_ini": x_ini,
-            "z_ini": z_ini,
-            "p_ini1": p_ini1,
-            "p_ini2": p_ini2,
-        },
+        # "ini": {
+        #     "x_ini": x_ini,
+        #     "z_ini": z_ini,
+        #     "p_ini1": p_ini1,
+        #     "p_ini2": p_ini2,
+        # },
         "eval": {
             "x_eval": x_eval,
             "z_eval": z_eval,
@@ -187,8 +136,7 @@ if __name__ == "__main__":
         "fig_dir": fig_dir,
     }
     plot_setup(**kwargs)
-
-    ### PDE residuals
+    ### Define collocation points
     batch_size = 10000
     n_pde = batch_size * 1
     print("kernel_size", ":", batch_size)
@@ -200,7 +148,75 @@ if __name__ == "__main__":
         (x_pde.reshape(-1, 1), z_pde.reshape(-1, 1), t_pde.reshape(-1, 1)), axis=1
     )
 
+    mu_x, mu_z, mu_t = (
+        xmax_spec / 2,
+        zmax_spec / 2,
+        0,
+    )
+    sigma_x, sigma_z, sigma_z = (
+        xmax_spec / 3,
+        zmax_spec / 3,
+        time_span / 3,
+    )
+    n_samples = 5000
+    samples_3d = []
+
+    ### add denser sample points
+    while len(samples_3d) < n_samples:
+        x = np.random.normal(loc=mu_x, scale=sigma_x)
+        z = np.random.normal(loc=mu_z, scale=sigma_z)
+        t = np.random.normal(loc=mu_t, scale=sigma_z)
+
+        if xmin <= x <= xmax and xmin <= z <= zmax and 0 <= t <= time_span:
+            samples_3d.append([x, z, t])
+
+    samples_3d = np.array(samples_3d)
+    X_pde = np.concatenate((X_pde, samples_3d), axis=0)
+    print(X_pde.shape)
+
+    ### define source signal
+    def f(x, z, t):
+        f_central = 3
+        delay = 0.4
+        h = (2 * (torch.pi * f_central * ((t + t_st) - delay))) * torch.exp(
+            -((torch.pi * f_central * ((t + t_st) - delay)) ** 2)
+        )
+        _lambda = (sos / xz_scl) / f_central
+        sigma = _lambda / 10
+        center = xmax_spec / 2
+        g = torch.exp(
+            -((x - center) ** 2 / (2 * sigma**2) + (z - center) ** 2 / (2 * sigma**2))
+        )
+        return g * h
+
+    ### save colloc points and signal for check
+
+    # def f_np(x, z, t):
+    #     f_central = 3
+    #     delay = 0.4
+    #     h = (2 * (np.pi * f_central * ((t + t_st) - delay))) * np.exp(
+    #         -((np.pi * f_central * ((t + t_st) - delay)) ** 2)
+    #     )
+    #     _lambda = (sos / xz_scl) / f_central
+    #     sigma = _lambda / 10
+    #     center = xmax_spec / 2
+    #     g = np.exp(
+    #         -((x - center) ** 2 / (2 * sigma**2) + (z - center) ** 2 / (2 * sigma**2))
+    #     )
+    #     return g * h
+
+    # src_sample = []
+    # for sample in samples_3d:
+    #     x, z, t = sample
+    #     p = f_np(x, z, t)
+    #     src_sample.append({"coord": [x, z, t], "val": p})
+
+    # data_dict = {"colloc": X_pde, "src_sample": src_sample}
+    # savemat("data.mat", data_dict)
+    # exit()
+
     model_kwargs = {
+        "model_path": model_path,
         "log_file": log_file,
         "kernel_size": kernel_size,
         "fig_dir": fig_dir,
@@ -212,53 +228,15 @@ if __name__ == "__main__":
         "xmin": xmin,
         "zmax": zmax,
         "zmin": zmin,
-        "xini_min": xini_min,
-        "xini_max": xini_max,
-        "ini_cond": {
-            "X_ini1": X_ini1,
-            "X_ini2": X_ini2,
-            "p_ini1": p_ini1,
-            "p_ini2": p_ini2,
-            "X_ini1_s2": X_ini1_s2,
-            "X_ini2_s2": X_ini2_s2,
-            "p_ini1_s2": p_ini1_s2,
-            "p_ini2_s2": p_ini2_s2,
-        },
         "X_pde": X_pde,
         "X_evals": X_evals,
         "p_evals": p_evals,
         "x_eval": x_eval,
         "z_eval": z_eval,
+        "f": f,
     }
 
-    #  # train
     print("====== Start train Now ... =======")
-    # train it, if networks are not provided
-    L2_min_adam_all = []
-    K_ini1_all = []
-    K_pde_all = []
-    lambda_ini1_all = []
-    lambda_pde_all = []
-    for i in range(1):
-        model = PhysicsInformedNN(**model_kwargs)
-        model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
-        print("============================================================")
 
-        model.train_LBFGS()
-        print("============================================================")
-
-        # checkpoints_path = f"{ckpt_dir}/loop_{i}_ini_LBFGS_checkpoints_8000.dump"
-        # model_kwargs["model_path"] = checkpoints_path
-        # model = PhysicsInformedNN(**model_kwargs)
-        # model.train_adam(
-        #     n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
-        # )
-        # K_ini1_list = model.K_ini1_log
-        # K_pde_list = model.K_pde_log
-        # lambda_ini1_log = model.lambda_ini1_log
-        # lambda_pde_log = model.lambda_pde_log
-        # print("============================================================")
-        # K_ini1_all.append(K_ini1_list)
-        # K_pde_all.append(K_pde_list)
-        # lambda_ini1_all.append(lambda_ini1_log)
-        # lambda_pde_all.append(lambda_pde_log)
+    model = Ultra_PINN(**model_kwargs)
+    model.train_adam(n_iters=10000)

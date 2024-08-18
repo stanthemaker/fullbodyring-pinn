@@ -14,80 +14,85 @@ def shift_half(array):
 
 def plot_setup(**kwargs):
     # Extract parameters from kwargs
-    x_ini = kwargs.get("x_ini")
-    z_ini = kwargs.get("z_ini")
-    u_ini1 = kwargs.get("u_ini1")
-    u_ini2 = kwargs.get("u_ini2")
-
-    x_eval = kwargs.get("x_eval")
-    z_eval = kwargs.get("z_eval")
-    p_evals = kwargs.get("p_evals")
+    ini = kwargs.pop("ini", None)
+    eval = kwargs.pop("eval", None)
 
     xz_scl = kwargs.get("xz_scl")
     time_pts = kwargs.get("time_pts")
 
     u_color = kwargs.get("u_color")
-    map_file = kwargs.get("map_file")
+    map_file = kwargs.pop("map_file", "")
     u_scl = kwargs.get("u_scl")
     fig_dir = kwargs.get("fig_dir")
 
     # Plot of inputs for the sum of the events (initial conditions)
-    ini_time = [0, round(time_pts[1] - time_pts[0], 4)]
-    n_eval_time = len(ini_time)
-    shape = (1, n_eval_time)
+    if not ini == None:
+        x_ini = ini.get("x_ini")
+        z_ini = ini.get("z_ini")
+        p_ini1 = ini.get("p_ini1")
+        p_ini2 = ini.get("p_ini2")
 
-    plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
-    U_ini_plot = [u_ini1, u_ini2]
+        ini_time = [0, round(time_pts[1] - time_pts[0], 4)]
+        n_ini_time = len(ini_time)
+        shape = (1, n_ini_time)
 
-    for it in range(n_eval_time):
-        plt.subplot2grid(shape, (0, it))
-        plt.scatter(
-            x_ini * xz_scl,
-            z_ini * xz_scl,
-            c=U_ini_plot[it],
-            alpha=1,
-            edgecolors="none",
-            cmap="seismic",
-            marker="o",
-            s=10,
-            vmin=-1,
-            vmax=1,
-        )
-        plt.colorbar()
-        plt.title("ini x t=" + str(ini_time[it]))
+        plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
+        U_ini_plot = [p_ini1, p_ini2]
 
-    save_path = os.path.join(fig_dir, "wavefield_init.png")
-    plt.savefig(save_path, dpi=300)
+        for it in range(n_ini_time):
+            plt.subplot2grid(shape, (0, it))
+            plt.scatter(
+                x_ini * xz_scl,
+                z_ini * xz_scl,
+                c=U_ini_plot[it],
+                alpha=1,
+                edgecolors="none",
+                cmap="seismic",
+                marker="o",
+                s=10,
+                vmin=-1,
+                vmax=1,
+            )
+            plt.colorbar()
+            plt.title("ini x t=" + str(ini_time[it]))
+
+        save_path = os.path.join(fig_dir, "wavefield_init.png")
+        plt.savefig(save_path, dpi=300)
 
     # Plot of inputs for the sum of the events (evaluated conditions)
-    eval_time = [0] + [
-        round(time_pts[i] - time_pts[0], 4) for i in range(1, len(time_pts))
-    ]
-    n_eval_time = len(eval_time)
-    shape = (1, n_eval_time)
+    if not eval == None:
+        x_eval = eval.get("x_eval")
+        z_eval = eval.get("z_eval")
+        p_evals = eval.get("p_evals")
 
-    plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
+        eval_time = [0] + [
+            round(time_pts[i] - time_pts[0], 4) for i in range(1, len(time_pts))
+        ]
+        n_eval_time = len(eval_time)
+        shape = (1, n_eval_time)
 
-    for it in range(len(eval_time)):
-        plt.subplot2grid(shape, (0, it))
-        plt.scatter(
-            x_eval * xz_scl,
-            z_eval * xz_scl,
-            c=p_evals[it],
-            alpha=1,
-            edgecolors="none",
-            cmap="seismic",
-            marker="o",
-            s=10,
-            vmin=-u_color,
-            vmax=u_color,
-        )
-        plt.axis("equal")
-        plt.colorbar()
-        plt.title("Specfem t=" + str(eval_time[it]))
+        plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
 
-    save_path = os.path.join(fig_dir, "wavefield_eval.png")
-    plt.savefig(save_path, dpi=300)
+        for it in range(len(eval_time)):
+            plt.subplot2grid(shape, (0, it))
+            plt.scatter(
+                x_eval * xz_scl,
+                z_eval * xz_scl,
+                c=p_evals[it],
+                alpha=1,
+                edgecolors="none",
+                cmap="seismic",
+                marker="o",
+                s=10,
+                vmin=-u_color,
+                vmax=u_color,
+            )
+            plt.axis("equal")
+            plt.colorbar()
+            plt.title("Specfem t=" + str(eval_time[it]))
+
+        save_path = os.path.join(fig_dir, "wavefield_eval.png")
+        plt.savefig(save_path, dpi=300)
 
     # Plot sos map
     if not map_file == "":
