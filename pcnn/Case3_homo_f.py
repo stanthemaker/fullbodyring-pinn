@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
     n_slices = wave_data.shape[0]
     time_span = 2.5
-    indices = [285, 500, 700, 950]
+    indices = [0, 200, 400, 700, 900]
     time_pts = []
     for i in range(len(indices)):
         time_pts.append((indices[i] / n_slices) * time_span)
@@ -89,8 +89,8 @@ if __name__ == "__main__":
     z_0 = z_0_mesh.reshape(-1, 1)
     xz_0 = np.concatenate((x_0, z_0), axis=1)
 
-    p_scl = np.max(abs(wave_data[indices[0]]))
-    p_scl = max(abs(np.min(wave_data[indices[0]])), abs(np.max(wave_data[indices[0]])))
+    p_scl = abs(wave_data).max()
+    # p_scl = max(abs(np.min(wave_data[indices[0]])), abs(np.max(wave_data[indices[0]])))
     u_color = 1.0
 
     n_eval = 100
@@ -131,11 +131,12 @@ if __name__ == "__main__":
         },
         "xz_scl": xz_scl,
         "time_pts": time_pts,
-        "u_color": u_color,
-        "u_scl": p_scl,
+        "p_color": u_color,
+        "p_scl": p_scl,
         "fig_dir": fig_dir,
     }
     plot_setup(**kwargs)
+
     ### Define collocation points
     batch_size = 10000
     n_pde = batch_size * 1
@@ -151,12 +152,12 @@ if __name__ == "__main__":
     mu_x, mu_z, mu_t = (
         xmax_spec / 2,
         zmax_spec / 2,
-        0,
+        0.4,
     )
-    sigma_x, sigma_z, sigma_z = (
-        xmax_spec / 3,
-        zmax_spec / 3,
-        time_span / 3,
+    sigma_x, sigma_z, sigma_t = (
+        xmax_spec / 10,
+        zmax_spec / 10,
+        time_span / 10,
     )
     n_samples = 5000
     samples_3d = []
@@ -165,9 +166,9 @@ if __name__ == "__main__":
     while len(samples_3d) < n_samples:
         x = np.random.normal(loc=mu_x, scale=sigma_x)
         z = np.random.normal(loc=mu_z, scale=sigma_z)
-        t = np.random.normal(loc=mu_t, scale=sigma_z)
+        t = np.random.normal(loc=mu_t, scale=sigma_t)
 
-        if xmin <= x <= xmax and xmin <= z <= zmax and 0 <= t <= time_span:
+        if xmin <= x <= xmax and xmin <= z <= zmax and t_st <= t <= time_span:
             samples_3d.append([x, z, t])
 
     samples_3d = np.array(samples_3d)
@@ -239,4 +240,4 @@ if __name__ == "__main__":
     print("====== Start train Now ... =======")
 
     model = Ultra_PINN(**model_kwargs)
-    model.train_adam(n_iters=10000)
+    model.train_adam(n_iters=30000)

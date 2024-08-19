@@ -38,6 +38,7 @@ if __name__ == "__main__":
     ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
     wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
+    wave_data = np.load(args.data)["data"]
 
     if not os.path.exists(dump_folder):
         os.mkdir(dump_folder)
@@ -103,26 +104,22 @@ if __name__ == "__main__":
     xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [1600, 2]
 
     # uploading the wavefields from specfem
-    wave_data = np.load(args.data)["data"]
+    p_scl = max(abs(np.min(indices[0])), abs(np.max(indices[0])))
     p_ini1 = interpolate.griddata(
         xz_0, wave_data[indices[0]].reshape(-1), xz_ini, fill_value=0.0
     )
     p_ini2 = interpolate.griddata(
         xz_0, wave_data[indices[1]].reshape(-1), xz_ini, fill_value=0.0
     )
-    p_scl = max(abs(np.min(p_ini1)), abs(np.max(p_ini1)))
-    print(p_scl)
     p_ini1 = p_ini1.reshape(-1, 1) / p_scl
     p_ini2 = p_ini2.reshape(-1, 1) / p_scl
-    u1_min = np.min(p_ini1)
-    u1_max = np.max(p_ini1)
-    u_color = max(abs(u1_min), abs(u1_max))
-    print(f"u_scl:{p_scl}")
+    p_color = max(abs(np.min(p_ini1)), abs(np.max(p_ini1)))
+    print(f"p_scl:{p_scl}")
     print(
-        f"shpae of U_ini1: {p_ini1.shape} === min: [{np.min(p_ini1)}] === max: [{np.max(p_ini1)}]"
+        f"shpae of P_ini1: {p_ini1.shape} === min: [{np.min(p_ini1)}] === max: [{np.max(p_ini1)}]"
     )
     print(
-        f"shpae of U_ini2: {p_ini2.shape} === min: [{np.min(p_ini2)}] === max: [{np.max(p_ini2)}]"
+        f"shpae of P_ini2: {p_ini2.shape} === min: [{np.min(p_ini2)}] === max: [{np.max(p_ini2)}]"
     )
     """ First IC and Second IC """
     x_ini_s2 = np.linspace(xmin, xmax, n_ini)
@@ -182,8 +179,8 @@ if __name__ == "__main__":
         },
         "xz_scl": xz_scl,
         "time_pts": time_pts,
-        "u_color": u_color,
-        "u_scl": p_scl,
+        "p_color": p_color,
+        "p_scl": p_scl,
         "fig_dir": fig_dir,
     }
     plot_setup(**kwargs)
@@ -233,32 +230,26 @@ if __name__ == "__main__":
 
     #  # train
     print("====== Start train Now ... =======")
-    # train it, if networks are not provided
-    L2_min_adam_all = []
-    K_ini1_all = []
-    K_pde_all = []
-    lambda_ini1_all = []
-    lambda_pde_all = []
-    for i in range(1):
-        model = PhysicsInformedNN(**model_kwargs)
-        model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
-        print("============================================================")
 
-        model.train_LBFGS()
-        print("============================================================")
+    model = PhysicsInformedNN(**model_kwargs)
+    model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
+    print("============================================================")
 
-        # checkpoints_path = f"{ckpt_dir}/loop_{i}_ini_LBFGS_checkpoints_8000.dump"
-        # model_kwargs["model_path"] = checkpoints_path
-        # model = PhysicsInformedNN(**model_kwargs)
-        # model.train_adam(
-        #     n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
-        # )
-        # K_ini1_list = model.K_ini1_log
-        # K_pde_list = model.K_pde_log
-        # lambda_ini1_log = model.lambda_ini1_log
-        # lambda_pde_log = model.lambda_pde_log
-        # print("============================================================")
-        # K_ini1_all.append(K_ini1_list)
-        # K_pde_all.append(K_pde_list)
-        # lambda_ini1_all.append(lambda_ini1_log)
-        # lambda_pde_all.append(lambda_pde_log)
+    model.train_LBFGS()
+    print("============================================================")
+
+    # checkpoints_path = f"{ckpt_dir}/loop_{i}_ini_LBFGS_checkpoints_8000.dump"
+    # model_kwargs["model_path"] = checkpoints_path
+    # model = PhysicsInformedNN(**model_kwargs)
+    # model.train_adam(
+    #     n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
+    # )
+    # K_ini1_list = model.K_ini1_log
+    # K_pde_list = model.K_pde_log
+    # lambda_ini1_log = model.lambda_ini1_log
+    # lambda_pde_log = model.lambda_pde_log
+    # print("============================================================")
+    # K_ini1_all.append(K_ini1_list)
+    # K_pde_all.append(K_pde_list)
+    # lambda_ini1_all.append(lambda_ini1_log)
+    # lambda_pde_all.append(lambda_pde_log)

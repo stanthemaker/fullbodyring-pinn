@@ -20,9 +20,9 @@ def plot_setup(**kwargs):
     xz_scl = kwargs.get("xz_scl")
     time_pts = kwargs.get("time_pts")
 
-    u_color = kwargs.get("u_color")
+    p_color = kwargs.get("p_color")
     map_file = kwargs.pop("map_file", "")
-    u_scl = kwargs.get("u_scl")
+    p_scl = kwargs.get("p_scl")
     fig_dir = kwargs.get("fig_dir")
 
     # Plot of inputs for the sum of the events (initial conditions)
@@ -84,8 +84,8 @@ def plot_setup(**kwargs):
                 cmap="seismic",
                 marker="o",
                 s=10,
-                vmin=-u_color,
-                vmax=u_color,
+                vmin=-p_color,
+                vmax=p_color,
             )
             plt.axis("equal")
             plt.colorbar()
@@ -96,9 +96,9 @@ def plot_setup(**kwargs):
 
     # Plot sos map
     if not map_file == "":
-        smap = np.load(map_file)["data"] / u_scl
+        smap = np.load(map_file)["data"] / xz_scl
         plt.figure(figsize=(8, 6))
-        plt.imshow(smap.T, aspect="auto")
+        plt.imshow(np.rot90(smap), aspect="auto")
         plt.colorbar(label="Value")
         plt.title("sos map")
 

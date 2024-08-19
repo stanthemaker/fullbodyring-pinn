@@ -13,7 +13,7 @@ import timeit
 import argparse
 import os
 
-from utils import plot_all, bilinear_interpol, plot_eval
+from utils import plot_setup, bilinear_interpol, plot_eval
 from net import PhysicsInformedNN
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -39,6 +39,7 @@ if __name__ == "__main__":
     wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
     map_file = "/home/stan/data/pinn/data/0814_f3_1disk_map.npz"
+    wave_data = np.load(args.data)["data"]
 
     if not os.path.exists(dump_folder):
         os.mkdir(dump_folder)
@@ -98,20 +99,19 @@ if __name__ == "__main__":
     t_ini1 = 0.0 * np.ones((n_ini**2, 1), dtype=np.float64)
     t_ini2 = (time_pts[1] - time_pts[0]) * np.ones((n_ini**2, 1), dtype=np.float64)
     # for enforcing the disp I.C
-    X_ini1 = np.concatenate((x_ini, z_ini, t_ini1), axis=1)  # [1600, 3]
+    X_ini1 = np.concatenate((x_ini, z_ini, t_ini1), axis=1)  # [n_ini ** 2, 3]
     # for enforcing the sec I.C, another snapshot of specfem
-    X_ini2 = np.concatenate((x_ini, z_ini, t_ini2), axis=1)  # [1600, 3]
-    xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [1600, 2]
+    X_ini2 = np.concatenate((x_ini, z_ini, t_ini2), axis=1)  # [n_ini ** 2, 3]
+    xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [n_ini ** 2, 2]
 
-    # uploading the wavefields from specfem
-    wave_data = np.load(args.data)["data"]
+    # # uploading the wavefields from specfem
+    p_scl = max(abs(np.min(indices[0])), abs(np.max(indices[0])))
     p_ini1 = interpolate.griddata(
         xz_0, wave_data[indices[0]].reshape(-1), xz_ini, fill_value=0.0
     )
     p_ini2 = interpolate.griddata(
         xz_0, wave_data[indices[1]].reshape(-1), xz_ini, fill_value=0.0
     )
-    p_scl = max(abs(np.min(p_ini1)), abs(np.max(p_ini1)))
     p_ini1 = p_ini1.reshape(-1, 1) / p_scl
     p_ini2 = p_ini2.reshape(-1, 1) / p_scl
     u1_min = np.min(p_ini1)
@@ -169,22 +169,25 @@ if __name__ == "__main__":
 
     ################### plotting
     kwargs = {
-        "x_ini": x_ini,
-        "z_ini": z_ini,
-        "u_ini1": p_ini1,
-        "u_ini2": p_ini2,
-        "x_eval": x_eval,
-        "z_eval": z_eval,
-        "p_evals": p_evals,
+        "ini": {
+            "x_ini": x_ini,
+            "z_ini": z_ini,
+            "p_ini1": p_ini1,
+            "p_ini2": p_ini2,
+        },
+        "eval": {
+            "x_eval": x_eval,
+            "z_eval": z_eval,
+            "p_evals": p_evals,
+        },
         "xz_scl": xz_scl,
         "time_pts": time_pts,
-        "u_color": u_color,
-        "map_file": map_file,
-        "u_scl": p_scl,
+        "p_color": 1.0,
+        "p_scl": p_scl,
         "fig_dir": fig_dir,
+        "map_file": map_file,
     }
-    plot_all(**kwargs)
-
+    plot_setup(**kwargs)
     ### PDE residuals
     batch_size = 20000
     n_pde = batch_size * 1
@@ -229,34 +232,31 @@ if __name__ == "__main__":
         "z_eval": z_eval,
     }
 
-    #  # train
+    # L2_min_adam_all = []
+    # K_ini1_all = []
+    # K_pde_all = []
+    # lambda_ini1_all = []
+    # lambda_pde_all = []
     print("====== Start train Now ... =======")
-    # train it, if networks are not provided
-    L2_min_adam_all = []
-    K_ini1_all = []
-    K_pde_all = []
-    lambda_ini1_all = []
-    lambda_pde_all = []
-    for i in range(1):
-        model = PhysicsInformedNN(**model_kwargs)
-        model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
-        print("============================================================")
+    model = PhysicsInformedNN(**model_kwargs)
+    model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
+    print("============================================================")
 
-        model.train_LBFGS()
-        print("============================================================")
+    model.train_LBFGS()
+    print("============================================================")
 
-        checkpoints_path = f"{ckpt_dir}/loop_{i}_ini_LBFGS_checkpoints_8000.dump"
-        model_kwargs["model_path"] = checkpoints_path
-        model = PhysicsInformedNN(**model_kwargs)
-        model.train_adam(
-            n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
-        )
-        K_ini1_list = model.K_ini1_log
-        K_pde_list = model.K_pde_log
-        lambda_ini1_log = model.lambda_ini1_log
-        lambda_pde_log = model.lambda_pde_log
-        print("============================================================")
-        K_ini1_all.append(K_ini1_list)
-        K_pde_all.append(K_pde_list)
-        lambda_ini1_all.append(lambda_ini1_log)
-        lambda_pde_all.append(lambda_pde_log)
+    checkpoints_path = f"{ckpt_dir}/loop_{i}_ini_LBFGS_checkpoints_8000.dump"
+    model_kwargs["model_path"] = checkpoints_path
+    model = PhysicsInformedNN(**model_kwargs)
+    model.train_adam(
+        n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
+    )
+    # K_ini1_list = model.K_ini1_log
+    # K_pde_list = model.K_pde_log
+    # lambda_ini1_log = model.lambda_ini1_log
+    # lambda_pde_log = model.lambda_pde_log
+    # print("============================================================")
+    # K_ini1_all.append(K_ini1_list)
+    # K_pde_all.append(K_pde_list)
+    # lambda_ini1_all.append(lambda_ini1_log)
+    # lambda_pde_all.append(lambda_pde_log)
