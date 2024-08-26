@@ -1,6 +1,5 @@
-[TOC]
 ## Contents 
- - src
+ - **src**
     - <font color="#1936C9">net.py</font>: contain three model classes 
         - ==PhysicsInformedNN==: 
             - Original PINN, 
@@ -33,7 +32,7 @@
     ```
      - <font color="#1936C9">utils.py</font>: contain utilily functions such as plotting and bilinear interpolation.
     
-- visualize
+- **visualize**
     - <font color="#1936C9">animate.py</font>: create mp4 file based on the input .npz file. Must be shape of ('TIME', 'WIDTH','LENGTH')
     ```bash
     python3 animate.py --file '.npz file path to visualize'
