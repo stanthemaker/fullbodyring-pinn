@@ -25,7 +25,7 @@ torch.set_default_dtype(torch.float64)
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Case1 homgeneous modeling")
+    parser = argparse.ArgumentParser(description="ultra pinn homgeneous modeling")
     parser.add_argument("--name", "-j", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
     parser.add_argument("--data", "-d", type=str, default="", help="data path")
@@ -75,13 +75,14 @@ if __name__ == "__main__":
 
     n_slices = wave_data.shape[0]
     time_span = 2.5
-    indices = [0, 200, 400, 700, 900]
+    indices = [0, 100, 250, 300]
     time_pts = []
     for i in range(len(indices)):
         time_pts.append((indices[i] / n_slices) * time_span)
+    print("Eval times: ", time_pts)
 
     t_m = time_pts[-1]  # total time for PDE training.
-    t_st = time_pts[0]  # this is when we take the first I.C from specfem
+    t_st = time_pts[0]  # start time
     x_0 = np.linspace(0, 1500, 500) / xz_scl
     z_0 = np.linspace(0, 1500, 500) / xz_scl
     x_0_mesh, z_0_mesh = np.meshgrid(x_0, z_0)
@@ -90,7 +91,6 @@ if __name__ == "__main__":
     xz_0 = np.concatenate((x_0, z_0), axis=1)
 
     p_scl = abs(wave_data).max()
-    # p_scl = max(abs(np.min(wave_data[indices[0]])), abs(np.max(wave_data[indices[0]])))
     u_color = 1.0
 
     n_eval = 100
@@ -138,16 +138,17 @@ if __name__ == "__main__":
     plot_setup(**kwargs)
 
     ### Define collocation points
-    batch_size = 10000
-    n_pde = batch_size * 1
-    print("kernel_size", ":", batch_size)
-    X_pde_sobol = sobol_sequence.sample(n_pde + 1, 3)[1:, :]
-    x_pde = X_pde_sobol[:, 0] * (xmax - xmin) + xmin
-    z_pde = X_pde_sobol[:, 1] * (zmax - zmin) + zmin
-    t_pde = X_pde_sobol[:, 2] * (t_m - t_st)
-    X_pde = np.concatenate(
-        (x_pde.reshape(-1, 1), z_pde.reshape(-1, 1), t_pde.reshape(-1, 1)), axis=1
-    )
+    # batch_size = 100
+    # n_pde = batch_size * 1
+    # print("kernel_size", ":", batch_size)
+    # X_pde_sobol = sobol_sequence.sample(n_pde + 1, 3)[1:, :]
+    # x_pde = X_pde_sobol[:, 0] * (xmax - xmin) + xmin
+    # z_pde = X_pde_sobol[:, 1] * (zmax - zmin) + zmin
+    # t_pde = X_pde_sobol[:, 2] * (t_m - t_st)
+    # X_pde = np.concatenate(
+    #     (x_pde.reshape(-1, 1), z_pde.reshape(-1, 1), t_pde.reshape(-1, 1)), axis=1
+    # )
+    # print("X_pde shape:", X_pde.shape)
 
     mu_x, mu_z, mu_t = (
         xmax_spec / 2,
@@ -155,14 +156,14 @@ if __name__ == "__main__":
         0.4,
     )
     sigma_x, sigma_z, sigma_t = (
-        xmax_spec / 10,
-        zmax_spec / 10,
-        time_span / 10,
+        xmax_spec / 20,
+        zmax_spec / 20,
+        time_span / 5,
     )
     n_samples = 5000
     samples_3d = []
 
-    ### add denser sample points
+    ### add denser sample points around source
     while len(samples_3d) < n_samples:
         x = np.random.normal(loc=mu_x, scale=sigma_x)
         z = np.random.normal(loc=mu_z, scale=sigma_z)
@@ -171,9 +172,9 @@ if __name__ == "__main__":
         if xmin <= x <= xmax and xmin <= z <= zmax and t_st <= t <= time_span:
             samples_3d.append([x, z, t])
 
-    samples_3d = np.array(samples_3d)
-    X_pde = np.concatenate((X_pde, samples_3d), axis=0)
-    print(X_pde.shape)
+    X_pde = np.array(samples_3d)
+    # X_pde = np.concatenate((samples_3d), axis=0)
+    print("X_pde shape:", X_pde.shape)
 
     ### define source signal
     def f(x, z, t):
@@ -240,4 +241,4 @@ if __name__ == "__main__":
     print("====== Start train Now ... =======")
 
     model = Ultra_PINN(**model_kwargs)
-    model.train_adam(n_iters=30000)
+    model.train_adam(n_iters=20001)

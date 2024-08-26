@@ -6,6 +6,8 @@
 *.npz
 *.txt
 *.dump
+*.ckpt
+*.pt
 *.mat
 src/__pycache__/*
-pcnn/__pycache__/*
+__pycache__/*

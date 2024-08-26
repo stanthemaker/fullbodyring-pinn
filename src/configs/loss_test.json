@@ -1,9 +1,0 @@
-{
-    "batch_size": 4,
-    "nepochs": 1,
-    "lr": 1e-3,
-    "NN_type": "DNN_paper",
-    "ckpt_dir": "/home/stan/data/pinn/ckpt",
-    "data_path": "/home/stan/data/pinn/data/0726_forward_417_4slices.npz",
-    "log_dir": "/home/stan/data/pinn/log"
-}

@@ -24,7 +24,7 @@ torch.set_default_dtype(torch.float64)
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Case1 homgeneous modeling")
+    parser = argparse.ArgumentParser(description="original pinn homgeneous modeling")
     parser.add_argument("--name", "-j", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
     parser.add_argument("--data", "-d", type=str, default="", help="data path")
@@ -38,7 +38,6 @@ if __name__ == "__main__":
     ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
     wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
-    map_file = "/home/stan/data/pinn/data/0814_f3_1disk_map.npz"
     wave_data = np.load(args.data)["data"]
 
     if not os.path.exists(dump_folder):
@@ -71,9 +70,9 @@ if __name__ == "__main__":
     zmin = zmin_spec + dz * n_abs
     zmax = zmax_spec - dz * n_abs
 
-    n_slices = 600
-    indices = [285, 318, 410, 510]
-    time_span = 1.5
+    n_slices = 1000
+    time_span = 2.5
+    indices = [200, 300, 400, 700, 900]
     time_pts = []
     for i in range(len(indices)):
         time_pts.append((indices[i] / n_slices) * time_span)
@@ -99,12 +98,12 @@ if __name__ == "__main__":
     t_ini1 = 0.0 * np.ones((n_ini**2, 1), dtype=np.float64)
     t_ini2 = (time_pts[1] - time_pts[0]) * np.ones((n_ini**2, 1), dtype=np.float64)
     # for enforcing the disp I.C
-    X_ini1 = np.concatenate((x_ini, z_ini, t_ini1), axis=1)  # [n_ini ** 2, 3]
+    X_ini1 = np.concatenate((x_ini, z_ini, t_ini1), axis=1)  # [1600, 3]
     # for enforcing the sec I.C, another snapshot of specfem
-    X_ini2 = np.concatenate((x_ini, z_ini, t_ini2), axis=1)  # [n_ini ** 2, 3]
-    xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [n_ini ** 2, 2]
+    X_ini2 = np.concatenate((x_ini, z_ini, t_ini2), axis=1)  # [1600, 3]
+    xz_ini = np.concatenate((x_ini, z_ini), axis=1)  # [1600, 2]
 
-    # # uploading the wavefields from specfem
+    # uploading the wavefields from specfem
     p_scl = max(abs(np.min(indices[0])), abs(np.max(indices[0])))
     p_ini1 = interpolate.griddata(
         xz_0, wave_data[indices[0]].reshape(-1), xz_ini, fill_value=0.0
@@ -114,15 +113,13 @@ if __name__ == "__main__":
     )
     p_ini1 = p_ini1.reshape(-1, 1) / p_scl
     p_ini2 = p_ini2.reshape(-1, 1) / p_scl
-    u1_min = np.min(p_ini1)
-    u1_max = np.max(p_ini1)
-    u_color = max(abs(u1_min), abs(u1_max))
-    print(f"u_scl:{p_scl}")
+    p_color = max(abs(np.min(p_ini1)), abs(np.max(p_ini1)))
+    print(f"p_scl:{p_scl}")
     print(
-        f"shpae of U_ini1: {p_ini1.shape} === min: [{np.min(p_ini1)}] === max: [{np.max(p_ini1)}]"
+        f"shpae of P_ini1: {p_ini1.shape} === min: [{np.min(p_ini1)}] === max: [{np.max(p_ini1)}]"
     )
     print(
-        f"shpae of U_ini2: {p_ini2.shape} === min: [{np.min(p_ini2)}] === max: [{np.max(p_ini2)}]"
+        f"shpae of P_ini2: {p_ini2.shape} === min: [{np.min(p_ini2)}] === max: [{np.max(p_ini2)}]"
     )
     """ First IC and Second IC """
     x_ini_s2 = np.linspace(xmin, xmax, n_ini)
@@ -182,14 +179,14 @@ if __name__ == "__main__":
         },
         "xz_scl": xz_scl,
         "time_pts": time_pts,
-        "p_color": 1.0,
+        "p_color": p_color,
         "p_scl": p_scl,
         "fig_dir": fig_dir,
-        "map_file": map_file,
     }
     plot_setup(**kwargs)
+
     ### PDE residuals
-    batch_size = 20000
+    batch_size = 10000
     n_pde = batch_size * 1
     print("kernel_size", ":", batch_size)
     X_pde_sobol = sobol_sequence.sample(n_pde + 1, 3)[1:, :]
@@ -202,7 +199,6 @@ if __name__ == "__main__":
 
     model_kwargs = {
         "log_file": log_file,
-        "map_file": map_file,
         "kernel_size": kernel_size,
         "fig_dir": fig_dir,
         "ckpt_dir": ckpt_dir,
@@ -232,12 +228,9 @@ if __name__ == "__main__":
         "z_eval": z_eval,
     }
 
-    # L2_min_adam_all = []
-    # K_ini1_all = []
-    # K_pde_all = []
-    # lambda_ini1_all = []
-    # lambda_pde_all = []
+    #  # train
     print("====== Start train Now ... =======")
+
     model = PhysicsInformedNN(**model_kwargs)
     model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
     print("============================================================")
@@ -251,12 +244,3 @@ if __name__ == "__main__":
     model.train_adam(
         n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
     )
-    # K_ini1_list = model.K_ini1_log
-    # K_pde_list = model.K_pde_log
-    # lambda_ini1_log = model.lambda_ini1_log
-    # lambda_pde_log = model.lambda_pde_log
-    # print("============================================================")
-    # K_ini1_all.append(K_ini1_list)
-    # K_pde_all.append(K_pde_list)
-    # lambda_ini1_all.append(lambda_ini1_log)
-    # lambda_pde_all.append(lambda_pde_log)
