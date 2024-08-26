@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument("--name", "-j", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
     parser.add_argument("--data", "-d", type=str, default="", help="data path")
+    parser.add_argument("--model", "-m", type=str, default="", help="model path")
     return parser.parse_args()
 
 
@@ -36,8 +37,8 @@ if __name__ == "__main__":
     dump_folder = f"/home/stan/data/pinn/pcnn/{args.name}"
     fig_dir = f"/home/stan/data/pinn/pcnn/{args.name}/figs"
     ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
-    wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
+    model_path = args.model
     wave_data = np.load(args.data)["data"]
 
     if not os.path.exists(dump_folder):
@@ -236,6 +237,7 @@ if __name__ == "__main__":
         return g * h
 
     model_kwargs = {
+        "model_path": model_path,
         "log_file": log_file,
         "kernel_size": kernel_size,
         "fig_dir": fig_dir,

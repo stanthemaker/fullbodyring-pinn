@@ -53,10 +53,13 @@ if __name__ == "__main__":
     device = torch.device(f"cuda:{args.cuda}" if torch.cuda.is_available() else "cpu")
     print("Your device is: {}".format(device))
 
+
+    ## the orignal problem size is 1500x1500 (m) , sos = 600 m/s
+    ## scaled down by a factor of 600
+    ## equivalent problem size is 2.5x2.5 (m), sos = 1m/s
     kernel_size = 200
     xz_scl = 600
     sos = 600
-    # PINN的x,z范围
     xmin_spec = 0
     xmax_spec = 1500 / xz_scl
     zmin_spec = 0
