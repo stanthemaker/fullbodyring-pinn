@@ -192,20 +192,16 @@ if __name__ == "__main__":
 
     ### colloc points for NTK calculation 
         ### pde NTK
-    # kernel_size = 200
-    # X_pde_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
-    # X_pde_NTK[:, 0] = X_pde_NTK[:, 0] * (xmax - xmin) + xmin
-    # X_pde_NTK[:, 1] = X_pde_NTK[:, 1] * (zmax - zmin) + zmin
-    # X_pde_NTK[:, 2] = X_pde_NTK[:, 2] * (
-    #     eval_times[-1] - eval_times[0]
-    # )
-    #     ### ini NTK
-    # X_ini_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
-    # X_ini_NTK[:, 0] = X_pde_NTK[:, 0] * (xmax - xmin) + xmin
-    # X_ini_NTK[:, 1] = X_pde_NTK[:, 1] * (zmax - zmin) + zmin
-    # X_ini_NTK[:, 2] = X_pde_NTK[:, 2] * (
-    #     eval_times[-1] - eval_times[0]
-    # )
+    kernel_size = 200
+    X_pde_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
+    X_pde_NTK[:, 0] = X_pde_NTK[:, 0] * (xmax - xmin) + xmin
+    X_pde_NTK[:, 1] = X_pde_NTK[:, 1] * (zmax - zmin) + zmin
+    X_pde_NTK[:, 2] = X_pde_NTK[:, 2] * (tmax - tmin)
+        ### ini NTK
+    X_ini_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
+    X_ini_NTK[:, 0] = X_ini_NTK[:, 0] * (xmax - xmin) + xmin
+    X_ini_NTK[:, 1] = X_ini_NTK[:, 1] * (zmax - zmin) + zmin
+    X_ini_NTK[:, 2] = X_ini_NTK[:, 2] * (tmax - tmin)
     ### save colloc points and signal for check
 
     # def f_np(x, z, t):
@@ -246,6 +242,8 @@ if __name__ == "__main__":
         "zmax": zmax,
         "zmin": zmin,
         "X_pde": X_pde,
+        "X_pde_NTK":X_pde_NTK,
+        "X_ini_NTK":X_ini_NTK,
         "eval_times": eval_times,
         "X_evals": X_evals,
         "p_evals": p_evals,
@@ -257,5 +255,5 @@ if __name__ == "__main__":
     # print("====== Start train Now ... =======")
 
     model = Ultra_PINN(**model_kwargs)
-    model.train_adam(n_iters=40000)
+    model.train_adam(n_iters=40001)
 

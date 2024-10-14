@@ -5,7 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from SALib.sample import sobol_sequence
 from torch.optim.lr_scheduler import StepLR
-from functorch import jacrev, vmap, make_functional, grad, vjp
+from functorch import make_functional
+from torch.func import jacrev , vjp,functional_call
 import torch.autograd.functional as F
 import csv
 import timeit
@@ -694,7 +695,14 @@ class Ultra_PINN(PhysicsInformedNN):
         self.zmax = kwargs.pop("zmax", None)
         self.zmin = kwargs.pop("zmin", None)
 
-        X_ini = kwargs.pop("X_ini", None) # a list of eval 3D points
+        self.X_evals = kwargs.pop("X_evals", None) # a list of eval 3D points
+        self.p_evals = kwargs.pop("p_evals", None)
+
+        X_ini = kwargs.pop("X_ini", None) 
+        X_pde = kwargs.pop("X_pde", None)
+        X_pde_NTK = kwargs.pop("X_pde_NTK", None)
+        X_ini_NTK = kwargs.pop("X_ini_NTK", None)
+        
         if X_ini is not None and X_ini.size > 0 and X_ini.any() > 0 :
             self.x_ini = torch.tensor(
                 X_ini[:, 0:1], dtype=torch.float64, requires_grad=True
@@ -710,16 +718,9 @@ class Ultra_PINN(PhysicsInformedNN):
             self.p_ini = torch.tensor(
                 p_ini, dtype=torch.float64, requires_grad=True
             ).to(device)
+            print("X_ini shape", X_ini.shape)
 
-        print("X_ini shape", X_ini.shape)
-
-        self.X_evals = kwargs.pop("X_evals", None) # a list of eval 3D points
-        self.p_evals = kwargs.pop("p_evals", None)
-
-        X_pde = kwargs.pop("X_pde", None)
-        self.source_func = kwargs.pop("source_func", None)
-        if X_pde is not None and X_pde.size > 0 and X_pde.any():
-            # X_pde[:, 0:1] keep as 2D 
+        if X_pde is not None and X_pde.size > 0 and X_pde.any():            # X_pde[:, 0:1] keep as 2D 
             self.x_pde = torch.tensor(
                 X_pde[:, 0:1], dtype=torch.float64, requires_grad=True
             ).to(device)
@@ -732,7 +733,33 @@ class Ultra_PINN(PhysicsInformedNN):
             self.f_pde = torch.tensor(
                 X_pde[:, 3:4], dtype=torch.float64, requires_grad=True
             ).to(device)
+            print("X_pde shape", X_pde.shape)
         
+        if X_ini_NTK is not None and X_ini_NTK.size > 0 and X_ini_NTK.any():
+            self.x_pde_ntk = torch.tensor(
+                X_pde_NTK[:, 0:1], dtype=torch.float64, requires_grad=True
+            )
+            self.z_pde_ntk = torch.tensor(
+                X_pde_NTK[:, 1:2], dtype=torch.float64, requires_grad=True
+            )
+            self.t_pde_ntk = torch.tensor(
+                X_pde_NTK[:, 2:3], dtype=torch.float64, requires_grad=True
+            )
+            print("X_pde_NTK shape:", X_pde_NTK.shape)
+
+        if X_ini_NTK is not None and X_ini_NTK.size > 0 and X_ini_NTK.any():
+            self.x_ini_ntk = torch.tensor(
+                X_ini_NTK[:, 0:1], dtype=torch.float64, requires_grad=True
+            )
+            self.z_ini_ntk = torch.tensor(
+                X_ini_NTK[:, 1:2], dtype=torch.float64, requires_grad=True
+            )
+            self.t_ini_ntk = torch.tensor(
+                X_ini_NTK[:, 2:3], dtype=torch.float64, requires_grad=True
+            )
+            print("X_ini_NTK shape:", X_ini_NTK.shape)
+
+        self.source_func = kwargs.pop("source_func", None)
         if not self.map_file == "":
             self.sos_map = np.load(self.map_file)["data"] / self.xz_scl
         # self.sos_map = torch.tensor(smap, dtype=torch.float64).to(device)
@@ -772,8 +799,35 @@ class Ultra_PINN(PhysicsInformedNN):
         self.loss_ini_log = []
         self.loss_pde_log = []
 
+        self.lambda_ini = 1
+        self.lambda_pde = 1
         self.lambda_ini_log = []
         self.lambda_pde_log = []
+
+    def update_lambda(self):
+        x = self.x_ini_ntk.to(self.device)
+        z = self.z_ini_ntk.to(self.device)
+        t = self.t_ini_ntk.to(self.device)
+        K_ini = self.compute_ini_ntk(x,z,t)
+
+        x = self.x_pde_ntk.to(self.device)
+        z = self.z_pde_ntk.to(self.device)
+        t = self.t_pde_ntk.to(self.device)
+        K_pde = self.compute_pde_ntk(x,z,t)
+
+        lambda_K_sum = torch.trace(K_ini) + torch.trace(K_pde)
+
+        lambda_ini = lambda_K_sum / torch.trace(K_ini)
+        lambda_pde = lambda_K_sum / torch.trace(K_pde)
+
+        self.lambda_ini = torch.autograd.Variable(
+            lambda_ini, requires_grad=True
+        )
+        self.lambda_pde = torch.autograd.Variable(
+            lambda_pde, requires_grad=True
+        )
+        self.lambda_ini_log.append(self.lambda_ini.item())
+        self.lambda_pde_log.append(self.lambda_pde.item())
 
     def net_p(self, x, z, t):
         p = self.dnn(torch.cat((x, z, t), dim=1))
@@ -825,16 +879,15 @@ class Ultra_PINN(PhysicsInformedNN):
         res_p_pred = self.calc_res_pde(self.x_pde, self.z_pde, self.t_pde, self.f_pde)
         loss_pde = mse_loss(res_p_pred, torch.zeros_like(res_p_pred).to(self.device))
 
-        p_ini_pred = self.net_u(self.x_ini, self.z_ini, self.t_ini)
+        p_ini_pred = self.net_p(self.x_ini, self.z_ini, self.t_ini)
         loss_ini = mse_loss(p_ini_pred, self.p_ini)
-        # loss = (
-        #     self.lambda_ini1 * loss_ini1
-        #     + self.lambda_ini2 * loss_ini2
-        #     + self.lambda_pde * loss_pde
-        # )
+        loss = (
+            self.lambda_ini * loss_ini
+            + self.lambda_pde * loss_pde
+        )
         self.loss_pde_log.append(loss_pde.item())
         self.loss_ini_log.append(loss_ini.item())
-        return loss_pde + loss_ini
+        return loss
 
     def train_adam(self, n_iters):
         self.dnn.train()
@@ -848,10 +901,12 @@ class Ultra_PINN(PhysicsInformedNN):
 
             self.loss_log.append(loss.detach().cpu().numpy())
 
-            self.adam_iter += 1
-            if self.adam_iter % 500 == 0:
+            if epoch % 200 == 0:
+                self.update_lambda()
+
+            if epoch % 500 == 0:
                 with open(self.log_file, "a") as f:
-                    f.write(f"Adam Iter {self.adam_iter}, Loss: {loss.item()}\n")
+                    f.write(f"Adam epoch: {epoch}, Loss: {loss.item()}\n")
 
             if epoch % 2000 == 0:
                 fig_path = f"{self.fig_dir}/adam_{epoch}.png"
@@ -864,11 +919,10 @@ class Ultra_PINN(PhysicsInformedNN):
         # write to file after training
         with open(f'{self.fig_dir}/loss_logs.csv', 'w', newline='') as file:
             writer = csv.writer(file)
-            writer.writerow(['loss_ini', 'loss_pde'])  # Write the header
+            writer.writerow(['loss_ini', 'loss_pde','lambda_ini','lambda_pde','loss'])  
 
-            # Write each pair of loss values from both logs
-            for loss_ini, loss_pde in zip(self.loss_ini_log, self.loss_pde_log):
-                writer.writerow([loss_ini, loss_pde])
+            for x, y,z,p,q in zip(self.loss_ini_log, self.loss_pde_log, self.lambda_ini_log, self.lambda_pde_log, self.loss_log):
+                writer.writerow([x, y,z,p,q])
 
 
 class Embed_PINN(PhysicsInformedNN):
