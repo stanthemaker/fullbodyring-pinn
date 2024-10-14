@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-import pickle
+# import pickle
 from torch.optim.lr_scheduler import StepLR
-from functorch import jacrev, vmap, make_functional, grad, vjp
+# from functorch import jacrev, vmap, make_functional, grad, vjp
 import torch.autograd.functional as F
 import timeit
 import argparse
@@ -27,16 +27,15 @@ def get_args():
     parser = argparse.ArgumentParser(description="original pinn homgeneous modeling")
     parser.add_argument("--name", "-j", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
-    parser.add_argument("--data", "-d", type=str, default="", help="data path")
+    parser.add_argument("--data", "-d", type=str, default="", help="ground truth data path")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = get_args()
-    dump_folder = f"/home/stan/data/pinn/pcnn/{args.name}"
-    fig_dir = f"/home/stan/data/pinn/pcnn/{args.name}/figs"
-    ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
-    wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
+    dump_folder = f"/home/stan/fullbodyring-pinn/data/{args.name}"
+    fig_dir = f"/home/stan/fullbodyring-pinn/data/{args.name}/figs"
+    ckpt_dir = f"/home/stan/fullbodyring-pinn/data/{args.name}/ckpt"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
     wave_data = np.load(args.data)["data"]
 
@@ -230,11 +229,11 @@ if __name__ == "__main__":
         "z_eval": z_eval,
     }
 
-    #  # train
+     # train
     print("====== Start train Now ... =======")
 
     model = PhysicsInformedNN(**model_kwargs)
-    model.train_adam(n_iters=30001, IfIni=True, loop_iter=i)
+    model.train_adam(n_iters=30001, IfIni=True)
     print("============================================================")
 
     model.train_LBFGS()
@@ -244,5 +243,5 @@ if __name__ == "__main__":
     model_kwargs["model_path"] = checkpoints_path
     model = PhysicsInformedNN(**model_kwargs)
     model.train_adam(
-        n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False, loop_iter=i
+        n_iters=30001, calc_NTK=True, update_lambda=True, IfIni=False
     )

@@ -47,7 +47,7 @@ def animate(step):
 
 
 args = get_args()
-data = np.load(args.file)["data"][300:]
+data = np.load(args.file)["data"]
 print(data.shape)
 vmax_global = abs(data).max()
 # scl = abs(data).max()

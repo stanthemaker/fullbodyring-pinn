@@ -7,6 +7,7 @@ from SALib.sample import sobol_sequence
 from torch.optim.lr_scheduler import StepLR
 from functorch import jacrev, vmap, make_functional, grad, vjp
 import torch.autograd.functional as F
+import csv
 import timeit
 from tqdm import tqdm
 from utils import plot_eval, bilinear_interpol
@@ -84,7 +85,7 @@ class PhysicsInformedNN:
         layers = kwargs.pop("layers", [3] + [40] * 5 + [1])
 
         self.xz_scl = kwargs.pop("xz_scl", 0)
-        self.time_pts = kwargs.pop("time_pts", None)
+        self.eval_times = kwargs.pop("eval_times", None)
         self.xmax = kwargs.pop("xmax", None)
         self.xmin = kwargs.pop("xmin", None)
         self.zmax = kwargs.pop("zmax", None)
@@ -220,8 +221,8 @@ class PhysicsInformedNN:
         self.L2_error_log = []
 
     def net_u(self, x, z, t):
-        u = self.dnn(torch.cat((x, z, t), dim=1))
-        return u
+        p = self.dnn(torch.cat((x, z, t), dim=1))
+        return p
 
     def get_sos(self, x, z):
         x_np = x.detach().cpu().numpy()
@@ -286,7 +287,7 @@ class PhysicsInformedNN:
 
             return u
 
-        jac1 = jacrev(fnet_single)(params, x, z, t)  # 只算第一个参数的？
+        jac1 = jacrev(fnet_single)(params, x, z, t)  # compute jacobian 
         jac1_flat = [j.flatten(2) for j in jac1]
 
         jac2 = jacrev(fnet_single)(params, x, z, t)
@@ -499,6 +500,7 @@ class PhysicsInformedNN:
             if calc_NTK & update_lambda & (epoch % 200 == 0):
                 start_update_lambda = timeit.default_timer()
                 # print('start update weights...')
+                # torch.trace: Returns the sum of the elements of the diagonal of the input 2-D matrix.
                 lambda_K_sum = (
                     torch.trace(self.K_ini1)
                     + torch.trace(self.K_ini2)
@@ -611,46 +613,48 @@ class PhysicsInformedNN:
         self.dnn.train()
         self.optimizer.step(self.closure)
 
-    def predict(self, X_evalt):
-        device = self.device
-        x = torch.tensor(X_evalt[:, 0:1], dtype=torch.float64, requires_grad=True).to(
-            device
-        )
-        z = torch.tensor(X_evalt[:, 1:2], dtype=torch.float64, requires_grad=True).to(
-            device
-        )
-        t = torch.tensor(X_evalt[:, 2:3], dtype=torch.float64, requires_grad=True).to(
-            device
-        )
-
+    def predict(self, x,z,t):
         self.dnn.eval()
-        p = self.dnn(torch.cat((x, z, t), dim=1))
 
+        x= x.to(self.device)
+        z= z.to(self.device)
+        t= t.to(self.device)
+
+        p = self.net_u(x,z,t)
         return p
 
     def predict_eval(self, figname):
 
-        P_PINN_pred = []
-        P_diff_diff = []
+        P_PINNs = []
+        P_DIFFs = []
 
         # Loop through the evaluation data
-        for i in range(len(self.X_evals)):
+        for i , X_eval in enumerate(self.X_evals):
             # Predict and convert to numpy
-            p_pinn = self.predict(self.X_evals[i])
+            x = torch.tensor(
+                X_eval[:, 0:1], dtype=torch.float64, requires_grad=False
+            )
+            z = torch.tensor(
+                X_eval[:, 1:2], dtype=torch.float64, requires_grad=False
+            )
+            t = torch.tensor(
+                X_eval[:, 2:3], dtype=torch.float64, requires_grad=False
+            )
+
+            p_pinn = self.predict(x,z,t)
             P_PINN = p_pinn.detach().cpu().numpy()
+            P_DIFF = self.p_evals[i] - P_PINN
 
-            P_diff = self.p_evals[i] - P_PINN
-
-            P_PINN_pred.append(P_PINN)
-            P_diff_diff.append(P_diff)
+            P_PINNs.append(P_PINN)
+            P_DIFFs.append(P_DIFF)
 
         kwargs = {
             "X_evals": self.X_evals,
-            "P_PINN_pred": P_PINN_pred,
-            "P_diff_diff": P_diff_diff,
+            "P_PINNs": P_PINNs,
+            "P_DIFFs": P_DIFFs,
             "p_evals": self.p_evals,
-            "x_eval": self.x_eval,
-            "z_eval": self.z_eval,
+            "x_eval": x,
+            "z_eval": z,
             "xz_scl": self.xz_scl,
             "savepath": figname,
         }
@@ -668,31 +672,181 @@ class PhysicsInformedNN:
 
 class Ultra_PINN(PhysicsInformedNN):
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        # Define layers
+        self.log_file = kwargs.pop("log_file", "")
+        self.map_file = kwargs.pop("map_file", "")  # sos map
+        self.kernel_size = kwargs.pop("kernel_size", 200)
+        self.fig_dir = kwargs.pop("fig_dir", "")
+        self.ckpt_dir = kwargs.pop("ckpt_dir", "")
+        self.inf_dir = kwargs.pop("inf_dir", "")
+        self.device = kwargs.pop("device", "cuda:0")
+        self.mode = kwargs.pop("mode", "train")
+        device = self.device
 
-        self.f = kwargs.pop("f", None)
+        lbfgs_iter = kwargs.pop("lbfgs_iter", 6000)
+        model_path = kwargs.pop("model_path", "")
+        layers = kwargs.pop("layers", [3] + [50] * 4 + [1])
 
-    def loss_func(self, f_xzt, f_rms):
+        self.xz_scl = kwargs.pop("xz_scl", 0)
+        self.eval_times = kwargs.pop("eval_times", None)
+        self.xmax = kwargs.pop("xmax", None)
+        self.xmin = kwargs.pop("xmin", None)
+        self.zmax = kwargs.pop("zmax", None)
+        self.zmin = kwargs.pop("zmin", None)
+
+        X_ini = kwargs.pop("X_ini", None) # a list of eval 3D points
+        if X_ini is not None and X_ini.size > 0 and X_ini.any() > 0 :
+            self.x_ini = torch.tensor(
+                X_ini[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_ini = torch.tensor(
+                X_ini[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_ini = torch.tensor(
+                X_ini[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
+
+            p_ini = kwargs.pop("p_ini", None)
+            self.p_ini = torch.tensor(
+                p_ini, dtype=torch.float64, requires_grad=True
+            ).to(device)
+
+        print("X_ini shape", X_ini.shape)
+
+        self.X_evals = kwargs.pop("X_evals", None) # a list of eval 3D points
+        self.p_evals = kwargs.pop("p_evals", None)
+
+        X_pde = kwargs.pop("X_pde", None)
+        self.source_func = kwargs.pop("source_func", None)
+        if X_pde is not None and X_pde.size > 0 and X_pde.any():
+            # X_pde[:, 0:1] keep as 2D 
+            self.x_pde = torch.tensor(
+                X_pde[:, 0:1], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.z_pde = torch.tensor(
+                X_pde[:, 1:2], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.t_pde = torch.tensor(
+                X_pde[:, 2:3], dtype=torch.float64, requires_grad=True
+            ).to(device)
+            self.f_pde = torch.tensor(
+                X_pde[:, 3:4], dtype=torch.float64, requires_grad=True
+            ).to(device)
+        
+        if not self.map_file == "":
+            self.sos_map = np.load(self.map_file)["data"] / self.xz_scl
+        # self.sos_map = torch.tensor(smap, dtype=torch.float64).to(device)
+
+        # DNN
+        self.dnn = DNN(layers).to(device)
+
+        if model_path == "":
+            self.dnn.apply(initialize_weights)
+        else:
+            print("model_path:", model_path)
+            self.dnn = load_checkpoint(self.dnn, model_path)
+
+        # optimizers
+        self.optimizer = torch.optim.LBFGS(
+            self.dnn.parameters(),
+            max_iter=lbfgs_iter,
+            max_eval=lbfgs_iter,
+            history_size=50,
+            tolerance_grad=1e-9,
+            tolerance_change=1.0 * np.finfo(float).eps,
+            line_search_fn="strong_wolfe",  # can be "strong_wolfe"
+        )
+
+        self.lr_adam = 5.0e-3
+        self.opt_adam = torch.optim.Adam(self.dnn.parameters(), lr=self.lr_adam)
+        self.scheduler = StepLR(self.opt_adam, step_size=100, gamma=0.99)
+
+        self.LBFGS_iter = 0
+        self.adam_iter = 0
+
+        # self.K_ini1_log = []
+        # self.K_ini2_log = []
+        # self.K_pde_log = []
+
+        self.loss_log = []
+        self.loss_ini_log = []
+        self.loss_pde_log = []
+
+        self.lambda_ini_log = []
+        self.lambda_pde_log = []
+
+    def net_p(self, x, z, t):
+        p = self.dnn(torch.cat((x, z, t), dim=1))
+        return p
+    
+    def calc_res_pde(self, x, z, t ,f):
+
+        p = self.net_p(x, z, t)
+        p_x = torch.autograd.grad(
+            p, x, grad_outputs=torch.ones_like(p), retain_graph=True, create_graph=True
+        )[0]
+        p_xx = torch.autograd.grad(
+            p_x,
+            x,
+            grad_outputs=torch.ones_like(p_x),
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+        p_z = torch.autograd.grad(
+            p, z, grad_outputs=torch.ones_like(p), retain_graph=True, create_graph=True
+        )[0]
+        p_zz = torch.autograd.grad(
+            p_z,
+            z,
+            grad_outputs=torch.ones_like(p_z),
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+        p_t = torch.autograd.grad(
+            p, t, grad_outputs=torch.ones_like(p), retain_graph=True, create_graph=True
+        )[0]
+        p_tt = torch.autograd.grad(
+            p_t,
+            t,
+            grad_outputs=torch.ones_like(p_t),
+            retain_graph=True,
+            create_graph=True,
+        )[0]
+        if self.map_file == "":
+            res_pde = p_tt - (p_xx + p_zz) - f 
+        else:
+            sos = self.get_sos(x, z)
+            res_pde = p_tt / sos**2 - (p_xx + p_zz) - f
+
+        return res_pde
+
+    def loss_func(self):
         mse_loss = nn.MSELoss()
-        res_p_pred = self.calc_res_pde(self.x_pde, self.z_pde, self.t_pde)
-        loss = mse_loss(res_p_pred, f_xzt) / f_rms
+        res_p_pred = self.calc_res_pde(self.x_pde, self.z_pde, self.t_pde, self.f_pde)
+        loss_pde = mse_loss(res_p_pred, torch.zeros_like(res_p_pred).to(self.device))
 
-        return loss
+        p_ini_pred = self.net_u(self.x_ini, self.z_ini, self.t_ini)
+        loss_ini = mse_loss(p_ini_pred, self.p_ini)
+        # loss = (
+        #     self.lambda_ini1 * loss_ini1
+        #     + self.lambda_ini2 * loss_ini2
+        #     + self.lambda_pde * loss_pde
+        # )
+        self.loss_pde_log.append(loss_pde.item())
+        self.loss_ini_log.append(loss_ini.item())
+        return loss_pde + loss_ini
 
     def train_adam(self, n_iters):
         self.dnn.train()
-
-        f_xzt = self.f(self.x_pde, self.z_pde, self.t_pde).detach()
-        f_rms = torch.sqrt(torch.mean(f_xzt**2)).detach()
         for epoch in tqdm(range(n_iters)):
 
             self.opt_adam.zero_grad()
-            loss = self.loss_func(f_xzt, f_rms)
+            loss = self.loss_func()
             loss.backward()
             self.opt_adam.step()
             self.scheduler.step()
 
-            self.loss_adam.append(loss.detach().cpu().numpy())
+            self.loss_log.append(loss.detach().cpu().numpy())
 
             self.adam_iter += 1
             if self.adam_iter % 500 == 0:
@@ -703,9 +857,18 @@ class Ultra_PINN(PhysicsInformedNN):
                 fig_path = f"{self.fig_dir}/adam_{epoch}.png"
                 self.predict_eval(fig_path)
 
-            if epoch % 10000 == 0:
-                save_model_path = f"{self.ckpt_dir}/adam_checkpoints_{epoch}.dump"
-                save_checkpoint(self.dnn, save_model_path)
+            # if epoch % 10000 == 0:
+            #     save_model_path = f"{self.ckpt_dir}/adam_checkpoints_{epoch}.dump"
+            #     save_checkpoint(self.dnn, save_model_path)
+        
+        # write to file after training
+        with open(f'{self.fig_dir}/loss_logs.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(['loss_ini', 'loss_pde'])  # Write the header
+
+            # Write each pair of loss values from both logs
+            for loss_ini, loss_pde in zip(self.loss_ini_log, self.loss_pde_log):
+                writer.writerow([loss_ini, loss_pde])
 
 
 class Embed_PINN(PhysicsInformedNN):

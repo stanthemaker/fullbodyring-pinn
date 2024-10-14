@@ -4,7 +4,6 @@ import scipy.interpolate as interpolate
 import os
 import torch
 
-
 def shift_half(array):
     half_size = int(array.size / 2)
     array[:half_size] = array[half_size:]
@@ -37,21 +36,21 @@ def plot_setup(**kwargs):
         shape = (1, n_ini_time)
 
         plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
-        U_ini_plot = [p_ini1, p_ini2]
+        P_ini_plot = [p_ini1, p_ini2]
 
         for it in range(n_ini_time):
             plt.subplot2grid(shape, (0, it))
             plt.scatter(
                 x_ini * xz_scl,
                 z_ini * xz_scl,
-                c=U_ini_plot[it],
+                c=P_ini_plot[it],
                 alpha=1,
                 edgecolors="none",
                 cmap="seismic",
                 marker="o",
                 s=10,
-                vmin=-1,
-                vmax=1,
+                vmin=-p_color,
+                vmax=p_color,
             )
             plt.colorbar()
             plt.title("ini x t=" + str(ini_time[it]))
@@ -112,8 +111,8 @@ def plot_eval(**kwargs):
     z_eval = kwargs.get("z_eval")
     xz_scl = kwargs.get("xz_scl")
     p_evals = kwargs.get("p_evals")
-    P_PINN_pred = kwargs.get("P_PINN_pred")
-    P_diff_diff = kwargs.get("P_diff_diff")
+    P_PINNs = kwargs.get("P_PINNs")
+    P_DIFFs = kwargs.get("P_DIFFs")
     savepath = kwargs.get("savepath")
 
     n_eval_time = len(X_evals)  # Number of evaluations
@@ -144,13 +143,13 @@ def plot_eval(**kwargs):
         plt.colorbar()
 
         # Plot predictions
-        vmax = abs(P_PINN_pred[it]).max()
+        vmax = abs(P_PINNs[it]).max()
         vmin = -vmax
         plt.subplot2grid(shape, (1, it))
         plt.scatter(
             x_eval * xz_scl,
             z_eval * xz_scl,
-            c=P_PINN_pred[it],
+            c=P_PINNs[it],
             alpha=0.9,
             edgecolors="none",
             cmap="seismic",
@@ -165,13 +164,13 @@ def plot_eval(**kwargs):
         plt.colorbar()
 
         # Plot differences
-        vmax = abs(P_diff_diff[it]).max()
+        vmax = abs(P_DIFFs[it]).max()
         vmin = -vmax
         plt.subplot2grid(shape, (2, it))
         plt.scatter(
             x_eval * xz_scl,
             z_eval * xz_scl,
-            c=P_diff_diff[it],
+            c=P_DIFFs[it],
             alpha=0.9,
             edgecolors="none",
             cmap="seismic",

@@ -2,17 +2,14 @@ import scipy.interpolate as interpolate
 from SALib.sample import sobol_sequence
 from collections import OrderedDict
 import torch
-import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
-import pickle
 from torch.optim.lr_scheduler import StepLR
-from functorch import jacrev, vmap, make_functional, grad, vjp
-import torch.autograd.functional as F
-import timeit
 import argparse
 import os
 from scipy.io import savemat
+import scipy.stats as stats
+
 
 from utils import plot_setup, bilinear_interpol, plot_eval
 from net import Ultra_PINN
@@ -26,7 +23,7 @@ torch.set_default_dtype(torch.float64)
 
 def get_args():
     parser = argparse.ArgumentParser(description="ultra pinn homgeneous modeling")
-    parser.add_argument("--name", "-j", type=str, help="experiment name")
+    parser.add_argument("--name", "-n", type=str, help="experiment name")
     parser.add_argument("--cuda", "-c", type=int, default=0, help="choose a cuda")
     parser.add_argument("--data", "-d", type=str, default="", help="data path")
     parser.add_argument("--model", "-m", type=str, default="", help="model path")
@@ -35,10 +32,9 @@ def get_args():
 
 if __name__ == "__main__":
     args = get_args()
-    dump_folder = f"/home/stan/data/pinn/pcnn/{args.name}"
-    fig_dir = f"/home/stan/data/pinn/pcnn/{args.name}/figs"
-    ckpt_dir = f"/home/stan/data/pinn/pcnn/{args.name}/ckpt"
-    wavefields_path = "/home/stan/data/pinn/pcnn/wavefields"
+    dump_folder = f"/home/stan/fullbodyring-pinn/data/{args.name}"
+    fig_dir = f"/home/stan/fullbodyring-pinn/data/{args.name}/figs"
+    ckpt_dir = f"/home/stan/fullbodyring-pinn/data/{args.name}/ckpt"
     log_file = os.path.join(dump_folder, f"{args.name}.log")
     model_path = args.model
     wave_data = np.load(args.data)["data"]
@@ -75,24 +71,23 @@ if __name__ == "__main__":
 
     n_slices = wave_data.shape[0]
     time_span = 2.5
-    indices = [0, 100, 250, 300]
-    time_pts = []
+    indices = [0, 100, 200, 300, 400]
+    eval_times = []
     for i in range(len(indices)):
-        time_pts.append((indices[i] / n_slices) * time_span)
-    print("Eval times: ", time_pts)
+        eval_times.append((indices[i] / n_slices) * time_span)
+    print("Eval times: ", eval_times)
 
-    t_m = time_pts[-1]  # total time for PDE training.
-    t_st = time_pts[0]  # start time
+    tmax = eval_times[-1]  # total time for PDE training.
+    tmin = eval_times[0]  # start time
     x_0 = np.linspace(0, 1500, 500) / xz_scl
     z_0 = np.linspace(0, 1500, 500) / xz_scl
     x_0_mesh, z_0_mesh = np.meshgrid(x_0, z_0)
     x_0 = x_0_mesh.reshape(-1, 1)
     z_0 = z_0_mesh.reshape(-1, 1)
     xz_0 = np.concatenate((x_0, z_0), axis=1)
-
     p_scl = abs(wave_data).max()
-    u_color = 1.0
 
+    ## eval points
     n_eval = 100
     x_eval = np.linspace(xmin, xmax, n_eval)
     z_eval = np.linspace(zmin, zmax, n_eval)
@@ -102,6 +97,8 @@ if __name__ == "__main__":
     xz_eval = np.concatenate((x_eval, z_eval), axis=1)  # [1600, 2]
 
     p_evals = []
+    X_evals = []
+    # from orignal gt data (1000, 500, 500) -> (time_pts,100,100)
     for i in range(len(indices)):
         p = interpolate.griddata(
             xz_0, wave_data[indices[i]].reshape(-1), xz_eval, fill_value=0.0
@@ -110,46 +107,54 @@ if __name__ == "__main__":
         p_evals.append(p)
 
     X_evals = []
-    for t in time_pts:
+    for t in eval_times:
         X_eval = np.concatenate(
-            (x_eval, z_eval, (t - time_pts[0]) * np.ones_like(x_eval)), axis=1
+            (x_eval, z_eval, (t - tmin) * np.ones_like(x_eval)), axis=1
         )
         X_evals.append(X_eval)
+       
+    ################### plotting   
+    shape = (1, len(eval_times))
+    plt.figure(figsize=(3 * shape[1], 3 * shape[0]))
+    for i in range(len(eval_times)):
+        plt.subplot2grid(shape, (0, i))
+        plt.scatter(
+            x_eval * xz_scl,
+            z_eval * xz_scl,
+            c=p_evals[i],
+            alpha=1,
+            edgecolors="none",
+            cmap="seismic",
+            marker="o",
+            s=10,
+            vmin=-1,
+            vmax=1,
+        )
+        plt.axis("equal")
+        plt.colorbar()
+        plt.title("Specfem t=" + str(eval_times[i]))
 
-    ################### plotting
-    kwargs = {
-        # "ini": {
-        #     "x_ini": x_ini,
-        #     "z_ini": z_ini,
-        #     "p_ini1": p_ini1,
-        #     "p_ini2": p_ini2,
-        # },
-        "eval": {
-            "x_eval": x_eval,
-            "z_eval": z_eval,
-            "p_evals": p_evals,
-        },
-        "xz_scl": xz_scl,
-        "time_pts": time_pts,
-        "p_color": u_color,
-        "p_scl": p_scl,
-        "fig_dir": fig_dir,
-    }
-    plot_setup(**kwargs)
-
+    save_path = os.path.join(fig_dir, "pressurefield_eval.png")
+    plt.savefig(save_path, dpi=300)
+    
     ### Define collocation points
-    # batch_size = 100
-    # n_pde = batch_size * 1
-    # print("kernel_size", ":", batch_size)
-    # X_pde_sobol = sobol_sequence.sample(n_pde + 1, 3)[1:, :]
-    # x_pde = X_pde_sobol[:, 0] * (xmax - xmin) + xmin
-    # z_pde = X_pde_sobol[:, 1] * (zmax - zmin) + zmin
-    # t_pde = X_pde_sobol[:, 2] * (t_m - t_st)
-    # X_pde = np.concatenate(
-    #     (x_pde.reshape(-1, 1), z_pde.reshape(-1, 1), t_pde.reshape(-1, 1)), axis=1
-    # )
-    # print("X_pde shape:", X_pde.shape)
-
+        ## define source signal
+    def source_f(x, z, t):
+        f_central = 3
+        delay = 0.4
+        h = (2 * (np.pi * f_central * ((t + tmin) - delay))) * np.exp(
+            -((np.pi * f_central * ((t + tmin) - delay)) ** 2)
+        )
+        _lambda = (sos / xz_scl) / f_central
+        sigma = _lambda / 10
+        center = xmax_spec / 2
+        g = np.exp(
+            -((x - center) ** 2 / (2 * sigma**2) + (z - center) ** 2 / (2 * sigma**2))
+        )
+        return g * h
+    
+    ### collocation points sampled around center source
+    n_center_smaples = 5000
     mu_x, mu_z, mu_t = (
         xmax_spec / 2,
         zmax_spec / 2,
@@ -160,37 +165,47 @@ if __name__ == "__main__":
         zmax_spec / 20,
         time_span / 5,
     )
-    n_samples = 5000
-    samples_3d = []
+    center_samples = []
 
-    ### add denser sample points around source
-    while len(samples_3d) < n_samples:
-        x = np.random.normal(loc=mu_x, scale=sigma_x)
-        z = np.random.normal(loc=mu_z, scale=sigma_z)
-        t = np.random.normal(loc=mu_t, scale=sigma_t)
+    x = stats.truncnorm(
+    (xmin - mu_x) / sigma_x, (xmax - mu_x) / sigma_x, loc=mu_x, scale=sigma_x).rvs(size=n_center_smaples)
 
-        if xmin <= x <= xmax and xmin <= z <= zmax and t_st <= t <= time_span:
-            samples_3d.append([x, z, t])
+    z = stats.truncnorm(
+    (zmin - mu_z) / sigma_z, (zmax - mu_z) / sigma_z, loc=mu_z, scale=sigma_z).rvs(size=n_center_smaples)
 
-    X_pde = np.array(samples_3d)
-    # X_pde = np.concatenate((samples_3d), axis=0)
+    t = stats.truncnorm(
+    (tmin - mu_t) / sigma_t, (tmax - mu_t) / sigma_t, loc=mu_t, scale=sigma_t).rvs(size=n_center_smaples)
+    f = source_f(x,z,t) 
+    center_samples = np.column_stack((x,z,t,f))
+
+    ### collocation points by sobol sampling
+    n_sobol_samples  = 5000
+    X_pde_sobol = sobol_sequence.sample(n_sobol_samples + 1, 3)[1:, :]
+    x = X_pde_sobol[:, 0] * (xmax - xmin) + xmin
+    z = X_pde_sobol[:, 1] * (zmax - zmin) + zmin
+    t = X_pde_sobol[:, 2] * (tmax - tmin)
+    f = source_f(x,z,t)
+    sobol_samples = np.column_stack((x,z,t,f))
+
+    X_pde = np.vstack((center_samples, sobol_samples))
     print("X_pde shape:", X_pde.shape)
 
-    ### define source signal
-    def f(x, z, t):
-        f_central = 3
-        delay = 0.4
-        h = (2 * (torch.pi * f_central * ((t + t_st) - delay))) * torch.exp(
-            -((torch.pi * f_central * ((t + t_st) - delay)) ** 2)
-        )
-        _lambda = (sos / xz_scl) / f_central
-        sigma = _lambda / 10
-        center = xmax_spec / 2
-        g = torch.exp(
-            -((x - center) ** 2 / (2 * sigma**2) + (z - center) ** 2 / (2 * sigma**2))
-        )
-        return g * h
-
+    ### colloc points for NTK calculation 
+        ### pde NTK
+    # kernel_size = 200
+    # X_pde_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
+    # X_pde_NTK[:, 0] = X_pde_NTK[:, 0] * (xmax - xmin) + xmin
+    # X_pde_NTK[:, 1] = X_pde_NTK[:, 1] * (zmax - zmin) + zmin
+    # X_pde_NTK[:, 2] = X_pde_NTK[:, 2] * (
+    #     eval_times[-1] - eval_times[0]
+    # )
+    #     ### ini NTK
+    # X_ini_NTK = sobol_sequence.sample(kernel_size + 1, 3)[1:, :]
+    # X_ini_NTK[:, 0] = X_pde_NTK[:, 0] * (xmax - xmin) + xmin
+    # X_ini_NTK[:, 1] = X_pde_NTK[:, 1] * (zmax - zmin) + zmin
+    # X_ini_NTK[:, 2] = X_pde_NTK[:, 2] * (
+    #     eval_times[-1] - eval_times[0]
+    # )
     ### save colloc points and signal for check
 
     # def f_np(x, z, t):
@@ -215,8 +230,9 @@ if __name__ == "__main__":
 
     # data_dict = {"colloc": X_pde, "src_sample": src_sample}
     # savemat("data.mat", data_dict)
+    # print(p_evals[0])
+    # print(wave_data[0])
     # exit()
-
     model_kwargs = {
         "model_path": model_path,
         "log_file": log_file,
@@ -225,20 +241,21 @@ if __name__ == "__main__":
         "ckpt_dir": ckpt_dir,
         "device": device,
         "xz_scl": xz_scl,
-        "time_pts": time_pts,
         "xmax": xmax,
         "xmin": xmin,
         "zmax": zmax,
         "zmin": zmin,
         "X_pde": X_pde,
+        "eval_times": eval_times,
         "X_evals": X_evals,
         "p_evals": p_evals,
-        "x_eval": x_eval,
-        "z_eval": z_eval,
-        "f": f,
+        "X_ini": X_evals[0], #for now ini is time = 0
+        "p_ini": p_evals[0], #for now ini is time = 0
+        "source_func": source_f,
     }
 
-    print("====== Start train Now ... =======")
+    # print("====== Start train Now ... =======")
 
     model = Ultra_PINN(**model_kwargs)
-    model.train_adam(n_iters=20001)
+    model.train_adam(n_iters=40000)
+

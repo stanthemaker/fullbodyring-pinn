@@ -9,5 +9,11 @@
 *.ckpt
 *.pt
 *.mat
+*.mp4
+*.csv
+*.dat
+*.txt
 src/__pycache__/*
 __pycache__/*
+deepxde/
+wave1D/
